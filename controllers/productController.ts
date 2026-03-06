@@ -15,6 +15,19 @@ export const getAllProducts = async (req: Request, res: Response) => {
   }
 };
 
+export const getProductById = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const product = await Product.findById(id);
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+    res.json({ ...product.toObject(), id: product._id.toString() });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 export const createProduct = async (req: AuthRequest, res: Response) => {
   if (!req.user || (req.user.role !== 'VENDOR' && req.user.role !== 'ADMIN')) {
     return res.status(403).json({ error: "Unauthorized" });
