@@ -4,7 +4,10 @@ import jwt from 'jsonwebtoken';
 import { User } from '../models/mongooseModels.js';
 import mongoose from 'mongoose';
 
-const JWT_SECRET = process.env.JWT_SECRET || "elibuy-secret-key-123";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('FATAL ERROR: JWT_SECRET is not defined in environment variables.');
+}
 
 export const signup = async (req: Request, res: Response) => {
   if (mongoose.connection.readyState !== 1) {

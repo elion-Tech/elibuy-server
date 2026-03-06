@@ -33,7 +33,7 @@ export const connectDB = async () => {
       });
       await admin.save();
 
-      const products = [
+      const productData = [
         {
           name: 'Premium Wireless Headphones',
           description: 'High-quality sound with noise cancellation.',
@@ -67,7 +67,8 @@ export const connectDB = async () => {
           category: 'Home'
         }
       ];
-      await Product.insertMany(products);
+      const productsWithVendor = productData.map(p => ({ ...p, vendor_id: admin._id }));
+      await Product.insertMany(productsWithVendor);
       console.log("Seeding completed.");
     }
   } catch (error: any) {
