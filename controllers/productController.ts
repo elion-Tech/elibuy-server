@@ -36,3 +36,51 @@ export const createProduct = async (req: AuthRequest, res: Response) => {
     res.status(400).json({ error: error.message });
   }
 };
+
+export const updateProduct = async (req: AuthRequest, res: Response) => {
+  if (!req.user || (req.user.role !== 'VENDOR' && req.user.role !== 'ADMIN')) {
+    return res.status(403).json({ error: "Unauthorized" });
+  }
+  try {
+    const { id } = req.params;
+    const product = await Product.findById(id);
+
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    // Vendor can only update their own products
+    if (req.user.role === 'VENDOR' && product.vendor_id.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Forbidden: You can only update your own products' });
+    }
+
+    const updatedProduct = await Product.findByIdAndUpdate(id, req.body, { new: true });
+    res.json({ ...updatedProduct?.toObject(), id: updatedProduct?._id.toString() });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+export const deleteProduct = async (req: AuthRequest, res: Response) => {
+  if (!req.user || (req.user.role !== 'VENDOR' && req.user.role !== 'ADMIN')) {
+    return res.status(403).json({ error: "Unauthorized" });
+  }
+  try {
+    const { id } = req.params;
+    const product = await Product.findById(id);
+
+    if (!product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    // Vendor can only delete their own products
+    if (req.user.role === 'VENDOR' && product.vendor_id.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Forbidden: You can only delete your own products' });
+    }
+
+    await Product.findByIdAndDelete(id);
+    res.status(200).json({ message: 'Product deleted successfully' });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
