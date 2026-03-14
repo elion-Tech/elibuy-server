@@ -1,32 +1,34 @@
 import { Response } from 'express';
 import { Order, Product } from '../models/mongooseModels.js';
-import { AuthRequest } from '../middleware/auth.js';
 import mongoose from 'mongoose';
-
+import { AuthRequest } from '../middleware/auth.js'; 
+ 
 export const createOrder = async (req: AuthRequest, res: Response) => {
   if (mongoose.connection.readyState !== 1) {
     return res.status(500).json({ error: "Database not connected." });
   }
+
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
   
-  const { items, total_amount, payment_reference } = req.body;
+  const { items, total_amount, payment_reference, shippingDetails } = req.body; 
   try {
     const order = new Order({
       shopper_id: req.user.id,
       total_amount,
       payment_reference,
       status: 'PAID',
-      items: items.map((item: any) => ({
-        product_id: item.id,
+      shippingDetails, // Save shipping details
+             items: items.map((item:any) => ({
+        product_id: item.product_id,
         quantity: item.quantity,
         price: item.price
       }))
     });
     await order.save();
     res.status(201).json({ orderId: order._id });
-  } catch (error: any) {
+  }  catch (error: any) {
+    console.error("Error creating order:", error);
     res.status(400).json({ error: error.message });
-  }
 };
 
 export const verifyPayment = async (req: AuthRequest, res: Response) => {

@@ -96,7 +96,7 @@ export const login = async (req: Request, res: Response) => {
   try {
     // Find user and explicitly include the password field
     const user = await User.findOne({ email }).select('+password');
-
+    
     // **THE FIX**: Check if user exists AND if password exists before comparing.
     // This handles both "user not found" and "password field is missing" cases.
     if (!user || !user.password) {
