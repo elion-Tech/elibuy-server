@@ -18,7 +18,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       payment_reference,
       status: 'PAID',
       shippingDetails, // Save shipping details
-             items: items.map((item:any) => ({
+      items: items.map((item:any) => ({
         product_id: item.product_id,
         quantity: item.quantity,
         price: item.price
@@ -29,6 +29,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
   }  catch (error: any) {
     console.error("Error creating order:", error);
     res.status(400).json({ error: error.message });
+  }
 };
 
 export const verifyPayment = async (req: AuthRequest, res: Response) => {
