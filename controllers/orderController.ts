@@ -19,7 +19,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       status: 'PAID',
       shippingDetails, // Save shipping details
       items: items.map((item:any) => ({
-        product_id: item.product_id,
+        product_id: item.product_id || item.id,
         quantity: item.quantity,
         price: item.price
       }))
