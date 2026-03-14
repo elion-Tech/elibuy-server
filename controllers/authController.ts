@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { User } from '../models/mongooseModels.js';
 import { AuthRequest } from '../middleware/auth.js';
 
@@ -18,6 +19,72 @@ export const signup = async (req: Request, res: Response) => {
 
     const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET!, { expiresIn: '1d' });
     res.status(201).json({ token, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const forgotPassword = async (req: Request, res: Response) => {
+  const { email } = req.body;
+
+  try {
+    const user = await User.findOne({ email });
+    if (!user) {
+      // We don't want to reveal if a user exists or not
+      return res.status(200).json({ message: 'If a user with that email exists, a password reset link has been sent.' });
+    }
+
+    // Generate token
+    const resetToken = crypto.randomBytes(20).toString('hex');
+
+    // Hash token and set to user
+    user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+    user.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    await user.save();
+
+    // Create reset url
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+
+    // In a real app, you would email this URL to the user.
+    // For this demo, we'll just log it and send it in the response for easy testing.
+    console.log('Password Reset URL: ', resetUrl);
+
+    res.status(200).json({ message: 'If a user with that email exists, a password reset link has been sent.' });
+
+  } catch (error: any) {
+    // Clear the token fields on error
+    const user = await User.findOne({ email });
+    if (user) {
+      user.resetPasswordToken = undefined;
+      user.resetPasswordExpire = undefined;
+      await user.save();
+    }
+    res.status(500).json({ error: 'Error sending reset email' });
+  }
+};
+
+export const resetPassword = async (req: Request, res: Response) => {
+  // Get hashed token
+  const resetPasswordToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
+
+  try {
+    const user = await User.findOne({
+      resetPasswordToken,
+      resetPasswordExpire: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid or expired token' });
+    }
+
+    // Set new password
+    user.password = await bcrypt.hash(req.body.password, 10);
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpire = undefined;
+    await user.save();
+
+    res.status(200).json({ message: 'Password reset successful. You can now log in.' });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
