@@ -39,7 +39,7 @@ export const forgotPassword = async (req: Request, res: Response) => {
 
     // Hash token and set to user
     user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-    user.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 minutes
+    user.resetPasswordExpire = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
     await user.save();
 
