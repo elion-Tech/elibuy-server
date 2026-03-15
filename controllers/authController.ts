@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { User } from '../models/mongooseModels.js';
 import { AuthRequest } from '../middleware/auth.js';
+import { sendPasswordResetEmail } from '../utils/email.js';
 
 export const signup = async (req: Request, res: Response) => {
   const { name, email, password, role } = req.body;
@@ -46,10 +47,8 @@ export const forgotPassword = async (req: Request, res: Response) => {
     // Create reset url
     const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
 
-    // In a real app, you would email this URL to the user.
-    // For this demo, we'll just log it and send it in the response for easy testing.
-    console.log('Password Reset URL: ', resetUrl);
-
+    // Send the email
+    await sendPasswordResetEmail(user.email, resetUrl);
     res.status(200).json({ message: 'If a user with that email exists, a password reset link has been sent.' });
 
   } catch (error: any) {

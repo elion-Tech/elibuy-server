@@ -32,7 +32,7 @@ const userSchema = new Schema<IUser>({
 }, { timestamps: true });
 
 const productSchema = new Schema<IProduct>({
-  vendor_id: { type: Schema.Types.ObjectId, ref: 'User' },
+  vendor_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   name: { type: String, required: true },
   description: { type: String },
   price: { type: Number, required: true },
