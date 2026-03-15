@@ -1,6 +1,6 @@
 import { Order, Product, User } from '../models/mongooseModels.js';
 import mongoose from 'mongoose';
-import { sendOrderConfirmationEmail } from '../utils/email.js';
+import { sendOrderConfirmationEmail } from './emailUtil.js';
 export const createOrder = async (req, res) => {
     if (mongoose.connection.readyState !== 1) {
         return res.status(500).json({ error: "Database not connected." });

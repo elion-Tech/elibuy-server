@@ -19,7 +19,8 @@
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.2.4",
-    "nodemailer": "^6.9.9"
+    "nodemailer": "^6.9.9",
+    "resend": "^3.5.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

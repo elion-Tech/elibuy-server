@@ -3,7 +3,7 @@ const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
     throw new Error('FATAL ERROR: JWT_SECRET is not defined in environment variables.');
 }
-export const authenticateToken = (req, res, next) => {
+export const auth = (req, res, next) => {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
     if (!token)
@@ -15,3 +15,4 @@ export const authenticateToken = (req, res, next) => {
         next();
     });
 };
+export const authenticateToken = auth;
