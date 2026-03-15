@@ -14,14 +14,16 @@ export interface AuthRequest extends Request {
   };
 }
 
-export const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction) => {
+export const auth = (req: AuthRequest, res: Response, next: NextFunction) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
   if (!token) return res.status(401).json({ error: "Access denied" });
 
-  jwt.verify(token, JWT_SECRET, (err: any, user: any) => {
+  jwt.verify(token, JWT_SECRET!, (err: any, user: any) => {
     if (err) return res.status(403).json({ error: "Invalid token" });
-    req.user = user;
+    (req as any).user = user;
     next();
   });
 };
+
+export const authenticateToken = auth;
