@@ -1,6 +1,6 @@
+import "dotenv/config"; // Load env vars before other imports
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import mongoose from "mongoose";
 import helmet from "helmet";
 import compression from "compression";
@@ -11,8 +11,6 @@ import authRoutes from "./routes/authRoutes.js";
 import productRoutes from "./routes/productRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
 import statsRoutes from "./routes/statsRoutes.js";
-
-dotenv.config();
 
 async function startServer() {
   await connectDB();
