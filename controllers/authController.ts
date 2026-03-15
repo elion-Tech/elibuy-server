@@ -4,7 +4,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import { User } from '../models/mongooseModels.js';
 import { AuthRequest } from '../middleware/auth.js';
-import { sendPasswordResetEmail } from '../utils/email.js';
+import { sendPasswordResetEmail } from './emailUtil.js';
 
 export const signup = async (req: Request, res: Response) => {
   const { name, email, password, role } = req.body;
