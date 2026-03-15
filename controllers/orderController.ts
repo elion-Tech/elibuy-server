@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import { Order, Product } from '../models/mongooseModels.js';
+import { Order, Product, User } from '../models/mongooseModels.js';
 import mongoose from 'mongoose';
 import { AuthRequest } from '../middleware/auth.js'; 
 import { sendOrderConfirmationEmail } from '../utils/email.js';
@@ -30,7 +30,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
     // Send confirmation email
     const user = await User.findById(req.user.id);
     if (user && user.email) {
-      sendOrderConfirmationEmail(user.email, order).catch(err => console.error("Failed to send email:", err));
+      sendOrderConfirmationEmail(user.email, order).catch((err: any) => console.error("Failed to send email:", err));
     }
 
     res.status(201).json({ orderId: order._id });
