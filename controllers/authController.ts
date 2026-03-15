@@ -47,8 +47,11 @@ export const forgotPassword = async (req: Request, res: Response) => {
     // Create reset url
     const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
 
-    // Send the email
-    await sendPasswordResetEmail(user.email, resetUrl);
+    // Send the email in the background (fire-and-forget)
+    // We don't use `await` so the user gets an immediate response.
+    sendPasswordResetEmail(user.email, resetUrl)
+      .catch(err => console.error("Failed to send password reset email in background:", err));
+      
     res.status(200).json({ message: 'If a user with that email exists, a password reset link has been sent.' });
 
   } catch (error: any) {
