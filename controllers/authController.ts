@@ -28,8 +28,9 @@ export const signup = async (req: Request, res: Response) => {
 export const forgotPassword = async (req: Request, res: Response) => {
   const { email } = req.body;
 
+  let user; // Define user in the outer scope
   try {
-    const user = await User.findOne({ email });
+    user = await User.findOne({ email });
     if (!user) {
       // We don't want to reveal if a user exists or not
       return res.status(200).json({ message: 'If a user with that email exists, a password reset link has been sent.' });
@@ -56,8 +57,7 @@ export const forgotPassword = async (req: Request, res: Response) => {
 
   } catch (error: any) {
     // Clear the token fields on error
-    const user = await User.findOne({ email });
-    if (user) {
+    if (user) { // Use the user object from the try block
       user.resetPasswordToken = undefined;
       user.resetPasswordExpire = undefined;
       await user.save();
