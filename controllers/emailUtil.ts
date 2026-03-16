@@ -17,7 +17,7 @@ export const sendOrderConfirmationEmail = async (email: string, order: any) => {
   if (!resend) return;
 
   try {
-    await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: 'Elibuy <onboarding@resend.dev>', // Use the default Resend domain for now
       to: [email],
       subject: `Order Confirmation #${order._id}`,
@@ -28,7 +28,12 @@ export const sendOrderConfirmationEmail = async (email: string, order: any) => {
         </div>
       `,
     });
-    console.log(`Order confirmation email sent to ${email}.`);
+
+    if (error) {
+      console.error('Resend API returned an error for Order Confirmation:', error);
+    } else {
+      console.log(`Order confirmation email sent to ${email}. ID: ${data?.id}`);
+    }
   } catch (error) {
     console.error('Error sending order confirmation email:', error);
   }
@@ -39,7 +44,7 @@ export const sendPasswordResetEmail = async (email: string, resetUrl: string) =>
   if (!resend) return;
 
   try {
-    await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: 'Elibuy <onboarding@resend.dev>',
       to: [email],
       subject: 'Your Password Reset Link',
@@ -48,7 +53,12 @@ export const sendPasswordResetEmail = async (email: string, resetUrl: string) =>
         <a href="${resetUrl}">Reset Password</a>
       `,
     });
-    console.log(`Password reset email sent to ${email}.`);
+
+    if (error) {
+      console.error('Resend API returned an error for Password Reset:', error);
+    } else {
+      console.log(`Password reset email sent to ${email}. ID: ${data?.id}`);
+    }
   } catch (error) {
     console.error('Error sending password reset email:', error);
   }

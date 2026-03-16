@@ -55,9 +55,10 @@ async function startServer() {
   // Global Error Handler
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     console.error(`[Error] ${req.method} ${req.url}:`, err.stack || err.message);
+    const isProduction = process.env.NODE_ENV === 'production';
     res.status(err.status || 500).json({
-      error: "Internal Server Error",
-      message: err.message,
+      error: 'Internal Server Error',
+      message: isProduction ? 'An unexpected error occurred.' : err.message,
     });
   });
 
