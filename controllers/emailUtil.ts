@@ -1,11 +1,15 @@
 import { Resend } from 'resend';
 
 const createResendClient = () => {
-  if (!process.env.RESEND_API_KEY) {
-    console.warn('RESEND_API_KEY is not set. Skipping email sending.');
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    // This is a critical error for email functionality.
+    console.error('CRITICAL: RESEND_API_KEY environment variable is not set. Email functionality is disabled.');
     return null;
   }
-  return new Resend(process.env.RESEND_API_KEY);
+  // For debugging, log a masked version of the key to confirm it's loaded.
+  console.log(`Resend client created. API Key loaded successfully (re_...).`);
+  return new Resend(apiKey);
 };
 
 export const sendOrderConfirmationEmail = async (email: string, order: any) => {
