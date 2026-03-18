@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Order, Product, User } from '../models/mongooseModels.js';
+import { Order, Product, User, IProduct } from '../models/mongooseModels.js';
 import mongoose from 'mongoose';
 import { AuthRequest } from '../middleware/auth.js'; 
 import { sendOrderConfirmationEmail } from './emailUtil.js';
@@ -72,14 +72,34 @@ export const getMyOrders = async (req: AuthRequest, res: Response) => {
   try {
     let orders;
     if (req.user.role === 'SHOPPER') {
-      orders = await Order.find({ shopper_id: req.user.id }).sort({ createdAt: -1 });
+      orders = await Order.find({ shopper_id: req.user.id })
+        .populate({
+          path: 'items.product_id',
+          model: 'Product',
+          populate: {
+            path: 'vendor_id',
+            model: 'User',
+            select: 'name email'
+          }
+        })
+        .sort({ createdAt: -1 });
     } else if (req.user.role === 'VENDOR') {
       // Find orders that contain products belonging to this vendor
       const vendorProducts = await Product.find({ vendor_id: req.user.id }).select('_id');
       const productIds = vendorProducts.map(p => p._id);
-      orders = await Order.find({ 'items.product_id': { $in: productIds } }).sort({ createdAt: -1 });
+      orders = await Order.find({ 'items.product_id': { $in: productIds } })
+        .populate('shopper_id', 'name email')
+        .populate('items.product_id')
+        .sort({ createdAt: -1 });
     } else {
-      orders = await Order.find().sort({ createdAt: -1 });
+      // For ADMIN or other roles, get all orders fully populated
+      orders = await Order.find()
+        .populate('shopper_id', 'name email')
+        .populate({
+          path: 'items.product_id',
+          model: 'Product'
+        })
+        .sort({ createdAt: -1 });
     }
     res.json(orders.map(o => ({ ...o.toObject(), id: o._id.toString() })));
   } catch (error: any) {
@@ -200,7 +220,17 @@ export const getAllOrders = async (req: AuthRequest, res: Response) => {
     return res.status(403).json({ error: "Unauthorized" });
   }
   try {
-    const orders = await Order.find().sort({ createdAt: -1 });
+    const orders = await Order.find()
+      .populate('shopper_id', 'name email')
+      .populate({
+        path: 'items.product_id',
+        model: 'Product',
+        populate: {
+          path: 'vendor_id',
+          model: 'User',
+          select: 'name email'
+        }
+      }).sort({ createdAt: -1 });
     res.json(orders);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -210,10 +240,32 @@ export const getAllOrders = async (req: AuthRequest, res: Response) => {
 export const getOrderById = async (req: AuthRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
   try {
-    const order = await Order.findById(req.params.id);
+    const order = await Order.findById(req.params.id)
+      .populate('shopper_id', 'name email')
+      .populate({
+        path: 'items.product_id',
+        model: 'Product',
+        populate: {
+          path: 'vendor_id',
+          model: 'User',
+          select: 'name email'
+        }
+      });
     if (!order) return res.status(404).json({ error: "Order not found" });
     
-    if (req.user.role !== 'ADMIN' && order.shopper_id.toString() !== req.user.id) {
+    // Authorization check
+    const isOwner = order.shopper_id._id.toString() === req.user.id;
+    const isAdmin = req.user.role === 'ADMIN';
+    
+    let isVendorForOrder = false;
+    if (req.user.role === 'VENDOR') {
+      isVendorForOrder = order.items.some(item => {
+        const product = item.product_id as IProduct;
+        return product.vendor_id.toString() === req.user.id;
+      });
+    }
+
+    if (!isOwner && !isAdmin && !isVendorForOrder) {
       return res.status(403).json({ error: "Forbidden" });
     }
     res.json(order);
