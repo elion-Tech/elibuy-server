@@ -4,6 +4,18 @@ import { User as UserType, Product as ProductType, Order as OrderType } from './
 export interface IUser extends Document, Omit<UserType, 'id'> {
   resetPasswordToken?: string;
   resetPasswordExpire?: Date;
+  vendorSettings?: {
+    state?: string;
+    logistics?: {
+      sameState?: number;
+      northCentral?: number;
+      northEast?: number;
+      northWest?: number;
+      southEast?: number;
+      southSouth?: number;
+      southWest?: number;
+    }
+  };
 }
 export interface IProduct extends Document, Omit<ProductType, 'id' | 'vendor_id'> {
   shippingCost?: number; // Optional override
