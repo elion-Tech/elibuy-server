@@ -186,3 +186,43 @@ export const calculateShipping = async (req: Request, res: Response) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+export const getAllOrders = async (req: AuthRequest, res: Response) => {
+  if (!req.user || req.user.role !== 'ADMIN') {
+    return res.status(403).json({ error: "Unauthorized" });
+  }
+  try {
+    const orders = await Order.find().sort({ createdAt: -1 });
+    res.json(orders);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const getOrderById = async (req: AuthRequest, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    
+    if (req.user.role !== 'ADMIN' && order.shopper_id.toString() !== req.user.id) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    res.json(order);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const deleteOrder = async (req: AuthRequest, res: Response) => {
+  if (!req.user || req.user.role !== 'ADMIN') {
+    return res.status(403).json({ error: "Unauthorized" });
+  }
+  try {
+    const order = await Order.findByIdAndDelete(req.params.id);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    res.json({ message: "Order deleted successfully" });
+  } catch (error: any) {
+     res.status(500).json({ error: error.message });
+  }
+};
