@@ -101,6 +101,22 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
   }
 };
 
+// Geopolitical Zones in Nigeria
+const ZONES: { [key: string]: string } = {
+  'Benue': 'northCentral', 'Kogi': 'northCentral', 'Kwara': 'northCentral', 'Nasarawa': 'northCentral', 'Niger': 'northCentral', 'Plateau': 'northCentral', 'FCT': 'northCentral', 'Abuja': 'northCentral',
+  'Adamawa': 'northEast', 'Bauchi': 'northEast', 'Borno': 'northEast', 'Gombe': 'northEast', 'Taraba': 'northEast', 'Yobe': 'northEast',
+  'Jigawa': 'northWest', 'Kaduna': 'northWest', 'Kano': 'northWest', 'Katsina': 'northWest', 'Kebbi': 'northWest', 'Sokoto': 'northWest', 'Zamfara': 'northWest',
+  'Abia': 'southEast', 'Anambra': 'southEast', 'Ebonyi': 'southEast', 'Enugu': 'southEast', 'Imo': 'southEast',
+  'Akwa Ibom': 'southSouth', 'Bayelsa': 'southSouth', 'Cross River': 'southSouth', 'Delta': 'southSouth', 'Edo': 'southSouth', 'Rivers': 'southSouth',
+  'Ekiti': 'southWest', 'Lagos': 'southWest', 'Ogun': 'southWest', 'Ondo': 'southWest', 'Osun': 'southWest', 'Oyo': 'southWest'
+};
+
+export const getShippingStates = (req: Request, res: Response) => {
+  const states = Object.keys(ZONES).sort();
+  // Add International as an option
+  res.json([...states, "International"]);
+};
+
 export const calculateShipping = async (req: Request, res: Response) => {
   const { state, items } = req.body;
   
@@ -108,17 +124,10 @@ export const calculateShipping = async (req: Request, res: Response) => {
     return res.status(200).json({ shippingCost: 0 });
   }
 
-  // Geopolitical Zones in Nigeria
-  const ZONES: { [key: string]: string } = {
-    'Benue': 'northCentral', 'Kogi': 'northCentral', 'Kwara': 'northCentral', 'Nasarawa': 'northCentral', 'Niger': 'northCentral', 'Plateau': 'northCentral', 'FCT': 'northCentral', 'Abuja': 'northCentral',
-    'Adamawa': 'northEast', 'Bauchi': 'northEast', 'Borno': 'northEast', 'Gombe': 'northEast', 'Taraba': 'northEast', 'Yobe': 'northEast',
-    'Jigawa': 'northWest', 'Kaduna': 'northWest', 'Kano': 'northWest', 'Katsina': 'northWest', 'Kebbi': 'northWest', 'Sokoto': 'northWest', 'Zamfara': 'northWest',
-    'Abia': 'southEast', 'Anambra': 'southEast', 'Ebonyi': 'southEast', 'Enugu': 'southEast', 'Imo': 'southEast',
-    'Akwa Ibom': 'southSouth', 'Bayelsa': 'southSouth', 'Cross River': 'southSouth', 'Delta': 'southSouth', 'Edo': 'southSouth', 'Rivers': 'southSouth',
-    'Ekiti': 'southWest', 'Lagos': 'southWest', 'Ogun': 'southWest', 'Ondo': 'southWest', 'Osun': 'southWest', 'Oyo': 'southWest'
-  };
-
-  const destinationZone = ZONES[state];
+  // Case-insensitive lookup
+  const normalizedState = state.trim().toLowerCase();
+  const zoneKey = Object.keys(ZONES).find(k => k.toLowerCase() === normalizedState);
+  const destinationZone = zoneKey ? ZONES[zoneKey] : undefined;
 
   // If destination is not in Nigeria list, it's International
   if (!destinationZone) {
