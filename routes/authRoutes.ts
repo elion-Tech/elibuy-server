@@ -7,7 +7,7 @@ import {
   getMe,
   updateProfile
 } from '../controllers/authController.js';
-import { auth } from '../middleware/auth.js';
+import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -15,7 +15,7 @@ router.post('/signup', signup);
 router.post('/login', login);
 router.post('/forgot-password', forgotPassword);
 router.put('/reset-password/:token', resetPassword);
-router.get('/me', auth, getMe);
-router.put('/profile', auth, updateProfile);
+router.get('/me', authenticateToken, getMe);
+router.put('/profile', authenticateToken, updateProfile);
 
 export default router;

@@ -140,10 +140,15 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
   
   try {
-    const { vendorSettings } = req.body;
+    const { name, vendorSettings } = req.body;
+    
+    const updateData: any = {};
+    if (name) updateData.name = name;
+    if (vendorSettings) updateData.vendorSettings = vendorSettings;
+
     const user = await User.findByIdAndUpdate(
       req.user.id, 
-      { $set: { vendorSettings } },
+      { $set: updateData },
       { new: true }
     );
     res.json(user);

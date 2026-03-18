@@ -46,6 +46,11 @@ async function startServer() {
   app.use("/api/orders", orderRoutes);
   app.use("/api/stats", statsRoutes);
 
+  // Handle 404 routes (Route not found)
+  app.use((req, res) => {
+    res.status(404).json({ error: "Route not found" });
+  });
+
   // Global Error Handler
   app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     console.error(`[Error] ${req.method} ${req.url}:`, err.stack || err.message);
@@ -57,7 +62,7 @@ async function startServer() {
   });
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
   });
 }
 
