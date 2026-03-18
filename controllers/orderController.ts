@@ -113,8 +113,14 @@ const ZONES: { [key: string]: string } = {
 
 export const getShippingStates = (req: Request, res: Response) => {
   const states = Object.keys(ZONES).sort();
-  // Add International as an option
-  res.json([...states, "International"]);
+  const options = [...states, "International"];
+
+  const { search } = req.query;
+  if (search && typeof search === 'string') {
+    const lowerSearch = search.toLowerCase();
+    return res.json(options.filter(opt => opt.toLowerCase().includes(lowerSearch)));
+  }
+  res.json(options);
 };
 
 export const calculateShipping = async (req: Request, res: Response) => {
