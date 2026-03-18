@@ -111,12 +111,6 @@ const ZONES: { [key: string]: string } = {
   'Ekiti': 'southWest', 'Lagos': 'southWest', 'Ogun': 'southWest', 'Ondo': 'southWest', 'Osun': 'southWest', 'Oyo': 'southWest'
 };
 
-export const getShippingStates = (req: Request, res: Response) => {
-  const states = Object.keys(ZONES).sort();
-  const options = [...states, "International"];
-  res.json(options);
-};
-
 export const calculateShipping = async (req: Request, res: Response) => {
   const { state, items } = req.body;
   
@@ -126,12 +120,17 @@ export const calculateShipping = async (req: Request, res: Response) => {
 
   // Case-insensitive lookup
   const normalizedState = state.trim().toLowerCase();
+
+  if (normalizedState === 'international') {
+    return res.status(200).json({ shippingCost: 0, isInternational: true });
+  }
+
   const zoneKey = Object.keys(ZONES).find(k => k.toLowerCase() === normalizedState);
   const destinationZone = zoneKey ? ZONES[zoneKey] : undefined;
 
-  // If destination is not in Nigeria list, it's International
+  // If destination is not a valid Nigerian state and not international, it's an error.
   if (!destinationZone) {
-    return res.status(200).json({ shippingCost: 0, isInternational: true });
+    return res.status(400).json({ error: 'Wrong state inputted' });
   }
 
   try {
