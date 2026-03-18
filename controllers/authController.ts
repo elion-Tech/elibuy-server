@@ -135,3 +135,19 @@ export const getMe = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+export const updateProfile = async (req: AuthRequest, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+  
+  try {
+    const { vendorSettings } = req.body;
+    const user = await User.findByIdAndUpdate(
+      req.user.id, 
+      { $set: { vendorSettings } },
+      { new: true }
+    );
+    res.json(user);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};

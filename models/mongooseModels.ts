@@ -6,6 +6,7 @@ export interface IUser extends Document, Omit<UserType, 'id'> {
   resetPasswordExpire?: Date;
 }
 export interface IProduct extends Document, Omit<ProductType, 'id' | 'vendor_id'> {
+  shippingCost?: number; // Optional override
   vendor_id: mongoose.Types.ObjectId;
 }
 export interface IOrder extends Document, Omit<OrderType, 'id' | 'shopper_id'> {
@@ -29,6 +30,18 @@ const userSchema = new Schema<IUser>({
   role: { type: String, enum: ['ADMIN', 'VENDOR', 'SHOPPER', 'LOGISTICS'], required: true },
   resetPasswordToken: { type: String },
   resetPasswordExpire: { type: Date },
+  vendorSettings: {
+    state: { type: String },
+    logistics: {
+      sameState: { type: Number, default: 0 },
+      northCentral: { type: Number, default: 0 },
+      northEast: { type: Number, default: 0 },
+      northWest: { type: Number, default: 0 },
+      southEast: { type: Number, default: 0 },
+      southSouth: { type: Number, default: 0 },
+      southWest: { type: Number, default: 0 }
+    }
+  }
 }, { timestamps: true });
 
 const productSchema = new Schema<IProduct>({
@@ -38,6 +51,7 @@ const productSchema = new Schema<IProduct>({
   price: { type: Number, required: true },
   stock: { type: Number, default: 0 },
   image_url: { type: String },
+  shippingCost: { type: Number }, // Product-specific override
   category: { type: String },
 }, { timestamps: true });
 

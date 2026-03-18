@@ -18,13 +18,7 @@ async function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
 
   // Security and Performance
-  app.use(helmet({
-    contentSecurityPolicy: {
-      directives: {
-        "script-src": ["'self'"], // Adjust as needed
-      },
-    },
-  }));
+  app.use(helmet());
   app.use(compression());
 
   const allowedOrigins = [
