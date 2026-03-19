@@ -18,7 +18,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       total_amount,
       payment_reference,
       status: 'PAID',
-      shippingDetails, // Save shipping details
+      shippingDetails: shippingDetails || {}, // Save shipping details
       items: items.map((item:any) => ({
         product_id: item.product_id || item.id,
         quantity: item.quantity,
@@ -27,10 +27,25 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
     });
     await order.save();
 
+    // Update product stock
+    for (const item of items) {
+      const productId = item.product_id || item.id;
+      const quantity = item.quantity;
+      try {
+        await Product.findByIdAndUpdate(productId, { $inc: { stock: -quantity } });
+      } catch (err) {
+        console.error(`Failed to update stock for product ${productId}:`, err);
+      }
+    }
+
     // Send confirmation email
-    const user = await User.findById(req.user.id);
-    if (user && user.email) {
-      sendOrderConfirmationEmail(user.email, order).catch((err: any) => console.error("Failed to send email:", err));
+    try {
+      const user = await User.findById(req.user.id);
+      if (user && user.email) {
+        sendOrderConfirmationEmail(user.email, order).catch((err: any) => console.error("Failed to send email:", err));
+      }
+    } catch (err) {
+      console.error("Failed to fetch user for email:", err);
     }
 
     res.status(201).json({ orderId: order._id });
@@ -46,7 +61,7 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
 
   if (!PAYSTACK_SECRET_KEY) {
     // If no key, we just simulate success for the demo
-    return res.json({ status: 'success', message: 'Payment verified (Simulated)' });
+    return res.json({ status: 'success', data: { status: 'success' }, message: 'Payment verified (Simulated)' });
   }
 
   try {
@@ -259,8 +274,9 @@ export const getOrderById = async (req: AuthRequest, res: Response) => {
     
     let isVendorForOrder = false;
     if (req.user.role === 'VENDOR') {
-      const vendorId = req.user.id;
+      const vendorId = req.user.id; // Capture ID to avoid undefined error in callback
       isVendorForOrder = order.items.some(item => {
+        // Fix TS2352: Double cast to unknown first to handle ObjectId -> IProduct conversion
         const product = item.product_id as unknown as IProduct;
         return product.vendor_id.toString() === vendorId;
       });
