@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Order, Product, User, IProduct, IUser } from '../models/mongooseModels.js';
+  import { Order, Product, User, IProduct, IUser } from '../models/mongooseModels.js';
 import mongoose from 'mongoose';
 import { AuthRequest } from '../middleware/auth.js'; 
 import { sendOrderConfirmationEmail } from './emailUtil.js';
@@ -35,7 +35,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       return {
         product_id: product._id,
         quantity: Number(item.quantity),
-        price: Number(item.price),
+        price: product.price, // Use DB price for data integrity
         name: product.name,
         image_url: product.image_url,
         vendor_name: vendor?.name,
