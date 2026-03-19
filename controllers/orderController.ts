@@ -259,9 +259,10 @@ export const getOrderById = async (req: AuthRequest, res: Response) => {
     
     let isVendorForOrder = false;
     if (req.user.role === 'VENDOR') {
+      const vendorId = req.user.id;
       isVendorForOrder = order.items.some(item => {
-        const product = item.product_id as IProduct;
-        return product.vendor_id.toString() === req.user.id;
+        const product = item.product_id as unknown as IProduct;
+        return product.vendor_id.toString() === vendorId;
       });
     }
 
