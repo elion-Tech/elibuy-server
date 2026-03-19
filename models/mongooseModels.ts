@@ -23,6 +23,8 @@ export interface IProduct extends Document, Omit<ProductType, 'id' | 'vendor_id'
 }
 export interface IOrder extends Document, Omit<OrderType, 'id' | 'shopper_id'> {
   shopper_id: mongoose.Types.ObjectId;
+  shopper_name?: string;
+  shopper_email?: string;
   shippingDetails?: {
     state?: string;
     lga?: string;
@@ -32,6 +34,10 @@ export interface IOrder extends Document, Omit<OrderType, 'id' | 'shopper_id'> {
     product_id: mongoose.Types.ObjectId;
     quantity: number;
     price: number;
+    name?: string;
+    image_url?: string;
+    vendor_name?: string;
+    size?: string;
   }[];
 }
 
@@ -69,6 +75,8 @@ const productSchema = new Schema<IProduct>({
 
 const orderSchema = new Schema<IOrder>({
   shopper_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  shopper_name: { type: String },
+  shopper_email: { type: String },
   total_amount: { type: Number, required: true },
   status: { 
     type: String, 
@@ -84,7 +92,11 @@ const orderSchema = new Schema<IOrder>({
   items: [{
     product_id: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
     quantity: { type: Number, required: true },
-    price: { type: Number, required: true }
+    price: { type: Number, required: true },
+    name: { type: String },
+    image_url: { type: String },
+    vendor_name: { type: String },
+    size: { type: String }
   }]
 }, { timestamps: true });
 

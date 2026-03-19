@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Order, Product, User, IProduct } from '../models/mongooseModels.js';
+import { Order, Product, User, IProduct, IUser } from '../models/mongooseModels.js';
 import mongoose from 'mongoose';
 import { AuthRequest } from '../middleware/auth.js'; 
 import { sendOrderConfirmationEmail } from './emailUtil.js';
@@ -11,38 +11,69 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
 
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
   
+  const shopper = await User.findById(req.user.id);
+  if (!shopper) return res.status(404).json({ error: "Shopper not found" });
+
   const { items, total_amount, payment_reference, shippingDetails } = req.body; 
+
+  console.log(`[Order] Creating order for user ${req.user.id}. Ref: ${payment_reference}`);
+
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: "No items provided" });
+  }
+
   try {
+    // Sanitize and validate items
+    const orderItems = await Promise.all(items.map(async (item: any) => {
+      const productId = item.product_id || item.id;
+      const product = await Product.findById(productId).populate('vendor_id');
+      
+      if (!product) throw new Error(`Product not found: ${productId}`);
+
+      const vendor = product.vendor_id as unknown as IUser;
+
+      return {
+        product_id: product._id,
+        quantity: Number(item.quantity),
+        price: Number(item.price),
+        name: product.name,
+        image_url: product.image_url,
+        vendor_name: vendor?.name,
+        size: item.size
+      };
+    }));
+
+    // Check for invalid numbers
+    if (orderItems.some((item: any) => isNaN(item.quantity) || isNaN(item.price))) {
+      throw new Error("Invalid item data: quantity, price, or product_id missing/invalid");
+    }
+
     const order = new Order({
       shopper_id: req.user.id,
-      total_amount,
+      shopper_name: shopper.name,
+      shopper_email: shopper.email,
+      total_amount: Number(total_amount),
       payment_reference,
       status: 'PAID',
       shippingDetails: shippingDetails || {}, // Save shipping details
-      items: items.map((item:any) => ({
-        product_id: item.product_id || item.id,
-        quantity: item.quantity,
-        price: item.price
-      }))
+      items: orderItems
     });
     await order.save();
+    console.log(`[Order] Order saved successfully: ${order._id}`);
 
     // Update product stock
-    for (const item of items) {
-      const productId = item.product_id || item.id;
-      const quantity = item.quantity;
+    for (const item of orderItems) {
       try {
-        await Product.findByIdAndUpdate(productId, { $inc: { stock: -quantity } });
+        await Product.findByIdAndUpdate(item.product_id, { $inc: { stock: -item.quantity } });
       } catch (err) {
-        console.error(`Failed to update stock for product ${productId}:`, err);
+        console.error(`Failed to update stock for product ${item.product_id}:`, err);
       }
     }
 
     // Send confirmation email
     try {
-      const user = await User.findById(req.user.id);
-      if (user && user.email) {
-        sendOrderConfirmationEmail(user.email, order).catch((err: any) => console.error("Failed to send email:", err));
+      if (shopper && shopper.email) {
+        sendOrderConfirmationEmail(shopper.email, order).catch((err: any) => console.error("Failed to send email:", err));
       }
     } catch (err) {
       console.error("Failed to fetch user for email:", err);
@@ -51,6 +82,9 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
     res.status(201).json({ orderId: order._id });
   }  catch (error: any) {
     console.error("Error creating order:", error);
+    if (error.name === 'ValidationError') {
+      console.error("Validation Details:", JSON.stringify(error.errors, null, 2));
+    }
     res.status(400).json({ error: error.message });
   }
 };
@@ -58,6 +92,8 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
 export const verifyPayment = async (req: AuthRequest, res: Response) => {
   const { reference } = req.body;
   const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
+
+  console.log(`[Payment] Verifying reference: ${reference}`);
 
   if (!PAYSTACK_SECRET_KEY) {
     // If no key, we just simulate success for the demo
