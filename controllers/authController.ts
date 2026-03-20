@@ -73,7 +73,7 @@ export const resetPassword = async (req: Request, res: Response) => {
   try {
     const user = await User.findOne({
       resetPasswordToken,
-      resetPasswordExpire: { $gt: Date.now() }
+      resetPasswordExpire: { $gt: new Date() }
     });
 
     if (!user) {
@@ -151,6 +151,7 @@ export const updateProfile = async (req: AuthRequest, res: Response) => {
       { $set: updateData },
       { new: true }
     );
+    if (!user) return res.status(404).json({ error: 'User not found' });
     res.json(user);
   } catch (error: any) {
     res.status(500).json({ error: error.message });

@@ -17,6 +17,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
   const { items, total_amount, payment_reference, shippingDetails } = req.body; 
 
   console.log(`[Order] Creating order for user ${req.user.id}. Ref: ${payment_reference}`);
+  console.log(`[Order] Payload items: ${JSON.stringify(items)}`);
 
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: "No items provided" });
@@ -64,13 +65,13 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
     console.log(`[Order] Order saved successfully: ${order._id}`);
 
     // Update product stock
-    for (const item of orderItems) {
+    await Promise.all(orderItems.map(async (item) => {
       try {
         await Product.findByIdAndUpdate(item.product_id, { $inc: { stock: -item.quantity } });
       } catch (err) {
         console.error(`Failed to update stock for product ${item.product_id}:`, err);
       }
-    }
+    }));
 
     // Send confirmation email
     try {
@@ -211,14 +212,14 @@ export const calculateShipping = async (req: Request, res: Response) => {
     const vendorItems: { [key: string]: any[] } = {};
     
     // We need to fetch product details to get vendor_id and potential overrides
-    for (const item of items) {
+    await Promise.all(items.map(async (item: any) => {
       const product = await Product.findById(item.product_id || item.id);
       if (product) {
         const vId = product.vendor_id.toString();
         if (!vendorItems[vId]) vendorItems[vId] = [];
         vendorItems[vId].push({ ...item, product });
       }
-    }
+    }));
 
     let totalShipping = 0;
 
