@@ -24,11 +24,13 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
 
   try {
     // Sanitize and validate items
-    const orderItems = await Promise.all(items.map(async (item: any) => {
+    const orderItems = await Promise.all(items.map(async (item: any, index: number) => {
       const productId = item.product_id || item.id;
+      if (!productId) throw new Error(`Item at index ${index} is missing product_id`);
+
       const product = await Product.findById(productId).populate('vendor_id');
       
-      if (!product) throw new Error(`Product not found: ${productId}`);
+      if (!product) throw new Error(`Product not found: ${productId} (Index: ${index})`);
 
       const vendor = product.vendor_id as unknown as IUser;
 
