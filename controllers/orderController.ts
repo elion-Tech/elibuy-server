@@ -1,14 +1,10 @@
 import { Request, Response } from 'express';
-  import { Order, Product, User, IProduct, IUser } from '../models/mongooseModels.js';
+import { Order, Product, User, IProduct, IUser } from '../models/mongooseModels.js';
 import mongoose from 'mongoose';
 import { AuthRequest } from '../middleware/auth.js'; 
 import { sendOrderConfirmationEmail } from './emailUtil.js';
 
 export const createOrder = async (req: AuthRequest, res: Response) => {
-  if (mongoose.connection.readyState !== 1) {
-    return res.status(500).json({ error: "Database not connected." });
-  }
-
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
   
   const shopper = await User.findById(req.user.id);
@@ -24,33 +20,35 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
   }
 
   try {
-    // Sanitize and validate items
-    const orderItems = await Promise.all(items.map(async (item: any, index: number) => {
+    const orderItems = [];
+    
+    // 1. Process items serially to ensure stock validation and data integrity
+    for (const [index, item] of items.entries()) {
       const productId = item.product_id || item.id;
       if (!productId) throw new Error(`Item at index ${index} is missing product_id`);
 
       const product = await Product.findById(productId).populate('vendor_id');
-      
       if (!product) throw new Error(`Product not found: ${productId} (Index: ${index})`);
+
+      // Check Stock
+      if (product.stock < Number(item.quantity)) {
+        throw new Error(`Insufficient stock for product: ${product.name}. Available: ${product.stock}`);
+      }
 
       const vendor = product.vendor_id as unknown as IUser;
 
-      return {
+      orderItems.push({
         product_id: product._id,
         quantity: Number(item.quantity),
-        price: product.price, // Use DB price for data integrity
+        price: product.price, // ALWAYS use DB price
         name: product.name,
         image_url: product.image_url,
-        vendor_name: vendor?.name,
-        size: item.size
-      };
-    }));
-
-    // Check for invalid numbers
-    if (orderItems.some((item: any) => isNaN(item.quantity) || isNaN(item.price))) {
-      throw new Error("Invalid item data: quantity, price, or product_id missing/invalid");
+        vendor_name: vendor?.name || 'Elibuy Vendor',
+        size: item.size || ''
+      });
     }
 
+    // 2. Create the Order
     const order = new Order({
       shopper_id: req.user.id,
       shopper_name: shopper.name,
@@ -61,28 +59,31 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       shippingDetails: shippingDetails || {}, // Save shipping details
       items: orderItems
     });
-    await order.save();
+    
+    const savedOrder = await order.save();
     console.log(`[Order] Order saved successfully: ${order._id}`);
 
-    // Update product stock
-    await Promise.all(orderItems.map(async (item) => {
+    // 3. Update product stock (Decrement)
+    // We use $inc with a negative number to subtract efficiently
+    for (const item of orderItems) {
       try {
         await Product.findByIdAndUpdate(item.product_id, { $inc: { stock: -item.quantity } });
       } catch (err) {
         console.error(`Failed to update stock for product ${item.product_id}:`, err);
       }
-    }));
+    }
 
-    // Send confirmation email
+    // 4. Send confirmation email
     try {
       if (shopper && shopper.email) {
-        sendOrderConfirmationEmail(shopper.email, order).catch((err: any) => console.error("Failed to send email:", err));
+        sendOrderConfirmationEmail(shopper.email, savedOrder).catch((err: any) => console.error("Failed to send email:", err));
       }
     } catch (err) {
       console.error("Failed to fetch user for email:", err);
     }
 
-    res.status(201).json({ orderId: order._id });
+    res.status(201).json({ success: true, orderId: savedOrder._id });
+    
   }  catch (error: any) {
     console.error("Error creating order:", error);
     if (error.name === 'ValidationError') {

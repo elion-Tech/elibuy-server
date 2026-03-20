@@ -13,6 +13,7 @@ import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
+// Create Order Route
 router.post('/', authenticateToken, createOrder);
 router.post('/cost', calculateShipping);
 router.get('/', authenticateToken, getAllOrders);
