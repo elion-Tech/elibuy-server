@@ -391,11 +391,13 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
   }
 
   try {
+    // Explicitly cast user ID for safety
+    const userId = new mongoose.Types.ObjectId(req.user.id);
     const shopper = await User.findById(req.user.id);
     if (!shopper) return res.status(404).json({ error: "Shopper not found" });
 
     // @ts-ignore
-    const cart = await Cart.findOne({ user: req.user.id });
+    const cart = await Cart.findOne({ user: userId });
 
     if (!cart || !cart.items || cart.items.length === 0) {
       console.log(`[CreateOrder] Failed: Cart is empty for user ${req.user.id}`);
@@ -408,6 +410,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     console.log(`[CreateOrder] Processing ${cart.items.length} items...`);
 
     for (const item of cart.items) {
+      // Ensure we populate the vendor_id properly to get the vendor's name
       const product = await Product.findById(item.product).populate('vendor_id');
       if (!product) {
         console.warn(`[CreateOrder] Product not found for item:`, item);
@@ -419,6 +422,12 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
         return res.status(400).json({ error: `Insufficient stock for ${product.name}` });
       }
 
+      // Safely access vendor name
+      let vendorName = 'Vendor';
+      if (product.vendor_id && (product.vendor_id as any).name) {
+        vendorName = (product.vendor_id as any).name;
+      }
+
       orderItems.push({
         product_id: product._id,
         quantity: item.quantity,
@@ -426,7 +435,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
         name: product.name,
         image_url: product.image_url,
         // @ts-ignore
-        vendor_name: (product.vendor_id as any)?.name || 'Vendor', 
+        vendor_name: vendorName,
       });
 
       total_amount += product.price * item.quantity;
@@ -441,7 +450,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
 
     console.log(`[CreateOrder] Constructing Order object...`);
     const order = new Order({
-      shopper_id: req.user.id,
+      shopper_id: userId,
       shopper_name: shopper.name,
       shopper_email: shopper.email,
       total_amount, 
@@ -453,14 +462,14 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
 
     console.log(`[CreateOrder] Saving to database...`);
     const savedOrder = await order.save();
-    console.log(`[CreateOrder] SUCCESS! Order ID: ${savedOrder._id}`);
+    console.log(`[CreateOrder] SUCCESS! Order saved with ID: ${savedOrder._id}`);
 
     for (const item of orderItems) {
       await Product.findByIdAndUpdate(item.product_id, { $inc: { stock: -item.quantity } });
     }
 
     // @ts-ignore
-    await Cart.findOneAndDelete({ user: req.user.id }).catch(err => console.error("Failed to clear cart:", err));
+    await Cart.findOneAndDelete({ user: userId }).catch(err => console.error("Failed to clear cart:", err));
 
     if (shopper.email) {
       sendOrderConfirmationEmail(shopper.email, savedOrder).catch(console.error);
