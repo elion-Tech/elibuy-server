@@ -125,12 +125,14 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
 export const getMyOrders = async (req: AuthRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
 
-  console.log(`[GetMyOrders] Fetching orders for User ID: ${req.user.id} (Role: ${req.user.role})`);
+  const dbName = mongoose.connection.db ? mongoose.connection.db.databaseName : 'UNKNOWN';
+  console.log(`[GetMyOrders] Fetching orders for User ID: ${req.user.id} (Role: ${req.user.role}) from DB: ${dbName}`);
 
   try {
+    const userId = new mongoose.Types.ObjectId(req.user.id); // Explicit cast to ObjectId
     let orders;
     if (req.user.role === 'SHOPPER') {
-      orders = await Order.find({ shopper_id: req.user.id })
+      orders = await Order.find({ shopper_id: userId })
         .populate({
           path: 'items.product_id',
           model: 'Product',
@@ -143,7 +145,7 @@ export const getMyOrders = async (req: AuthRequest, res: Response) => {
         .sort({ createdAt: -1 });
     } else if (req.user.role === 'VENDOR') {
       // Find orders that contain products belonging to this vendor
-      const vendorProducts = await Product.find({ vendor_id: req.user.id }).select('_id');
+      const vendorProducts = await Product.find({ vendor_id: userId }).select('_id');
       const productIds = vendorProducts.map(p => p._id);
       orders = await Order.find({ 'items.product_id': { $in: productIds } })
         .populate('shopper_id', 'name email')
@@ -159,7 +161,14 @@ export const getMyOrders = async (req: AuthRequest, res: Response) => {
         })
         .sort({ createdAt: -1 });
     }
-    console.log(`[GetMyOrders] Found ${orders.length} orders.`);
+    console.log(`[GetMyOrders] Found ${orders.length} orders in DB '${dbName}'.`);
+    
+    // DEBUG: If 0 found, verify if ANY orders exist in the entire DB
+    if (orders.length === 0) {
+      const totalOrders = await Order.countDocuments();
+      console.log(`[GetMyOrders] DEBUG: Total orders in collection: ${totalOrders}`);
+    }
+
     res.json(orders.map(o => ({ ...o.toObject(), id: o._id.toString() })));
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -269,6 +278,28 @@ export const calculateShipping = async (req: Request, res: Response) => {
     }
 
     res.json({ shippingCost: totalShipping });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const debugCheckDb = async (req: Request, res: Response) => {
+  try {
+    const dbName = mongoose.connection.db ? mongoose.connection.db.databaseName : 'UNKNOWN';
+    const orderCount = await Order.countDocuments();
+    const userCount = await User.countDocuments();
+    const productCount = await Product.countDocuments();
+    
+    res.json({
+      message: "Database Connection Debug",
+      activeDatabase: dbName,
+      counts: {
+        orders: orderCount,
+        users: userCount,
+        products: productCount
+      },
+      mongoUriPart: process.env.MONGODB_URI ? process.env.MONGODB_URI.split('@')[1] : 'UNDEFINED'
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
