@@ -25,6 +25,7 @@ export interface IOrder extends Document, Omit<OrderType, 'id' | 'shopper_id'> {
   shopper_id: mongoose.Types.ObjectId;
   shopper_name?: string;
   shopper_email?: string;
+  shipping_cost: number;
   shippingDetails?: {
     state?: string;
     lga?: string;
@@ -32,6 +33,7 @@ export interface IOrder extends Document, Omit<OrderType, 'id' | 'shopper_id'> {
   };
   items: {
     product_id: mongoose.Types.ObjectId;
+    vendor_id: mongoose.Types.ObjectId;
     quantity: number;
     price: number;
     name?: string;
@@ -86,6 +88,7 @@ const orderSchema = new Schema<IOrder>({
   shopper_name: { type: String },
   shopper_email: { type: String },
   total_amount: { type: Number, required: true },
+  shipping_cost: { type: Number, default: 0 },
   status: { 
     type: String, 
     enum: ['PENDING', 'PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'], 
@@ -99,6 +102,7 @@ const orderSchema = new Schema<IOrder>({
   },
   items: [{
     product_id: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
+    vendor_id: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     quantity: { type: Number, required: true },
     price: { type: Number, required: true },
     name: { type: String },
