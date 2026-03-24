@@ -122,50 +122,6 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
   }
 };
 
-export const handlePaystackWebhook = async (req: Request, res: Response) => {
-  const secret = process.env.PAYSTACK_SECRET_KEY;
-  if (!secret) {
-    console.error("[Webhook] PAYSTACK_SECRET_KEY is not defined");
-    return res.status(500).send();
-  }
-
-  // 1. Validate the event signature from Paystack
-  const signature = req.headers['x-paystack-signature'] as string;
-  if (!signature) {
-    return res.status(400).send('Missing signature');
-  }
-
-  const hash = crypto.createHmac('sha512', secret).update(JSON.stringify(req.body)).digest('hex');
-  if (hash !== signature) {
-    return res.status(400).send('Invalid signature');
-  }
-
-  // 2. Process the event
-  const event = req.body;
-  
-  if (event.event === 'charge.success') {
-    const reference = event.data.reference;
-    console.log(`[Webhook] Payment successful for ref: ${reference}`);
-
-    try {
-      const order = await Order.findOne({ payment_reference: reference });
-      if (order) {
-        if (order.status !== 'PAID') {
-          order.status = 'PAID';
-          await order.save();
-          console.log(`[Webhook] Order ${order._id} updated to PAID`);
-        } else {
-           console.log(`[Webhook] Order ${order._id} is already PAID`);
-        }
-      }
-    } catch (error) {
-      console.error(`[Webhook] Error updating order:`, error);
-    }
-  }
-
-  res.status(200).send();
-};
-
 export const getMyOrders = async (req: AuthRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
 
@@ -393,6 +349,31 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
 
   const { shippingDetails, payment_reference } = req.body;
+
+  // 1. Security Check: Verify Payment with Paystack (Essential without Webhooks)
+  const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
+  if (PAYSTACK_SECRET_KEY) {
+    try {
+      // Verify that this reference hasn't been used already
+      const existingOrder = await Order.findOne({ payment_reference });
+      if (existingOrder) {
+        return res.status(400).json({ error: "Duplicate transaction reference." });
+      }
+
+      // Calls Paystack API
+      const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${payment_reference}`, {
+        headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` }
+      });
+      const verifyData = await verifyRes.json();
+
+      if (!verifyData.status || verifyData.data.status !== 'success') {
+        return res.status(400).json({ error: "Payment verification failed. Unable to create order." });
+      }
+    } catch (err) {
+      console.error("Paystack verification error inside createOrder:", err);
+      return res.status(500).json({ error: "Payment verification failed" });
+    }
+  }
 
   try {
     const shopper = await User.findById(req.user.id);
