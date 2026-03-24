@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { Order, Product, User, IProduct, IUser } from '../models/mongooseModels.js';
+import { Order, Product, User, Cart, IProduct, IUser } from '../models/mongooseModels.js';
 import mongoose from 'mongoose';
 import { AuthRequest } from '../middleware/auth.js'; 
 import { sendOrderConfirmationEmail } from './emailUtil.js';
@@ -341,5 +341,79 @@ export const deleteOrder = async (req: AuthRequest, res: Response) => {
     res.json({ message: "Order deleted successfully" });
   } catch (error: any) {
      res.status(500).json({ error: error.message });
+  }
+};
+
+export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
+  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+
+  const { shippingDetails, payment_reference } = req.body;
+
+  try {
+    const shopper = await User.findById(req.user.id);
+    if (!shopper) return res.status(404).json({ error: "Shopper not found" });
+
+    // @ts-ignore
+    const cart = await Cart.findOne({ user: req.user.id }).populate({
+      path: 'items.product',
+      model: 'Product'
+    });
+
+    if (!cart || cart.items.length === 0) {
+      return res.status(400).json({ error: "Cart is empty" });
+    }
+
+    let total_amount = 0;
+    const orderItems = [];
+
+    for (const item of cart.items) {
+      const product = await Product.findById(item.product);
+      if (!product) continue;
+
+      if (product.stock < item.quantity) {
+        return res.status(400).json({ error: `Insufficient stock for ${product.name}` });
+      }
+
+      orderItems.push({
+        product_id: product._id,
+        quantity: item.quantity,
+        price: product.price,
+        name: product.name,
+        image_url: product.image_url,
+        // @ts-ignore
+        vendor_name: product.vendor_id?.name || 'Vendor', 
+      });
+
+      total_amount += product.price * item.quantity;
+    }
+
+    const order = new Order({
+      shopper_id: req.user.id,
+      shopper_name: shopper.name,
+      shopper_email: shopper.email,
+      total_amount, 
+      payment_reference,
+      status: 'PAID',
+      shippingDetails,
+      items: orderItems
+    });
+
+    const savedOrder = await order.save();
+
+    for (const item of orderItems) {
+      await Product.findByIdAndUpdate(item.product_id, { $inc: { stock: -item.quantity } });
+    }
+
+    // @ts-ignore
+    await Cart.findOneAndDelete({ user: req.user.id });
+
+    if (shopper.email) {
+      sendOrderConfirmationEmail(shopper.email, savedOrder).catch(console.error);
+    }
+
+    res.status(201).json({ success: true, orderId: savedOrder._id });
+  } catch (error: any) {
+    console.error("Error creating order from cart:", error);
+    res.status(500).json({ error: error.message });
   }
 };

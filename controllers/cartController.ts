@@ -39,7 +39,7 @@ export const mergeCart = async (req: Request, res: Response) => {
     }
 
     for (const item of items) {
-      const existingItemIndex = cart.items.findIndex(cartItem => cartItem.product.toString() === item.productId);
+      const existingItemIndex = cart.items.findIndex((cartItem: any) => cartItem.product.toString() === item.productId);
       if (existingItemIndex > -1) {
         cart.items[existingItemIndex].quantity += item.quantity;
       } else {
@@ -72,7 +72,7 @@ export const addItemToCart = async (req: Request, res: Response) => {
       cart = await Cart.create({ user: userId, items: [] });
     }
 
-    const itemIndex = cart.items.findIndex(item => item.product.toString() === productId);
+    const itemIndex = cart.items.findIndex((item: any) => item.product.toString() === productId);
 
     if (itemIndex > -1) {
       cart.items[itemIndex].quantity += quantity;
