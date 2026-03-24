@@ -130,8 +130,13 @@ export const handlePaystackWebhook = async (req: Request, res: Response) => {
   }
 
   // 1. Validate the event signature from Paystack
+  const signature = req.headers['x-paystack-signature'] as string;
+  if (!signature) {
+    return res.status(400).send('Missing signature');
+  }
+
   const hash = crypto.createHmac('sha512', secret).update(JSON.stringify(req.body)).digest('hex');
-  if (hash !== req.headers['x-paystack-signature']) {
+  if (hash !== signature) {
     return res.status(400).send('Invalid signature');
   }
 
