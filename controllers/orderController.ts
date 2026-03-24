@@ -346,7 +346,10 @@ export const deleteOrder = async (req: AuthRequest, res: Response) => {
 };
 
 export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
-  if (!req.user) return res.status(401).json({ error: "Unauthorized" });
+  if (!req.user) {
+    console.log("[CreateOrder] Failed: Unauthorized request");
+    return res.status(401).json({ error: "Unauthorized" });
+  }
 
   const { shippingDetails, payment_reference, shipping_cost } = req.body;
 
@@ -354,28 +357,37 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
 
   // 1. Security Check: Verify Payment with Paystack (Essential without Webhooks)
   const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
-  if (PAYSTACK_SECRET_KEY) {
+  
+  // SKIP verification if this is a demo reference from the frontend simulation
+  const isDemo = payment_reference && String(payment_reference).startsWith('DEMO-');
+
+  if (PAYSTACK_SECRET_KEY && !isDemo) {
     try {
       // Verify that this reference hasn't been used already
       const existingOrder = await Order.findOne({ payment_reference });
       if (existingOrder) {
+        console.warn(`[CreateOrder] Failed: Duplicate reference ${payment_reference}`);
         return res.status(400).json({ error: "Duplicate transaction reference." });
       }
 
+      console.log(`[CreateOrder] Verifying with Paystack...`);
       // Calls Paystack API
-      // Note: Node 18+ has built-in fetch. If on older Node, ensure 'node-fetch' is installed or polyfilled.
       const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${payment_reference}`, {
         headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` }
       });
       const verifyData = await verifyRes.json();
 
       if (!verifyData.status || verifyData.data.status !== 'success') {
+        console.error(`[CreateOrder] Paystack verification failed:`, verifyData);
         return res.status(400).json({ error: "Payment verification failed. Unable to create order." });
       }
+      console.log(`[CreateOrder] Paystack verification successful.`);
     } catch (err) {
       console.error("Paystack verification error inside createOrder:", err);
       return res.status(500).json({ error: "Payment verification failed" });
     }
+  } else {
+    console.log(`[CreateOrder] Skipping Paystack verification (Demo mode or No Key).`);
   }
 
   try {
@@ -386,17 +398,24 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     const cart = await Cart.findOne({ user: req.user.id });
 
     if (!cart || !cart.items || cart.items.length === 0) {
+      console.log(`[CreateOrder] Failed: Cart is empty for user ${req.user.id}`);
       return res.status(400).json({ error: "Cart is empty" });
     }
 
     let total_amount = 0;
     const orderItems = [];
 
+    console.log(`[CreateOrder] Processing ${cart.items.length} items...`);
+
     for (const item of cart.items) {
       const product = await Product.findById(item.product).populate('vendor_id');
-      if (!product) continue;
+      if (!product) {
+        console.warn(`[CreateOrder] Product not found for item:`, item);
+        continue;
+      }
 
       if (product.stock < item.quantity) {
+        console.warn(`[CreateOrder] Stock error for ${product.name}`);
         return res.status(400).json({ error: `Insufficient stock for ${product.name}` });
       }
 
@@ -420,6 +439,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: "All items in your cart are no longer available." });
     }
 
+    console.log(`[CreateOrder] Constructing Order object...`);
     const order = new Order({
       shopper_id: req.user.id,
       shopper_name: shopper.name,
@@ -431,7 +451,9 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       items: orderItems
     });
 
+    console.log(`[CreateOrder] Saving to database...`);
     const savedOrder = await order.save();
+    console.log(`[CreateOrder] SUCCESS! Order ID: ${savedOrder._id}`);
 
     for (const item of orderItems) {
       await Product.findByIdAndUpdate(item.product_id, { $inc: { stock: -item.quantity } });

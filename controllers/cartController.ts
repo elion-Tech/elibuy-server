@@ -104,7 +104,7 @@ export const updateCartItem = async (req: Request, res: Response) => {
     const cart = await Cart.findOneAndUpdate(
       { user: userId, 'items.product': productId },
       { $set: { 'items.$.quantity': quantity } },
-      { new: true }
+      { returnDocument: 'after' }
     ).populate({ path: 'items.product', model: 'Product' });
 
     if (!cart) {
@@ -127,7 +127,7 @@ export const removeCartItem = async (req: Request, res: Response) => {
     const cart = await Cart.findOneAndUpdate(
       { user: userId },
       { $pull: { items: { product: productId } } },
-      { new: true }
+      { returnDocument: 'after' }
     ).populate({ path: 'items.product', model: 'Product' });
 
     if (!cart) {
