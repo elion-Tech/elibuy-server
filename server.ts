@@ -10,6 +10,7 @@ import { connectDB } from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
 import productRoutes from "./routes/productRoutes.js";
 import orderRoutes from "./routes/orderRoutes.js";
+import cartRoutes from "./routes/cartRoutes.js";
 import statsRoutes from "./routes/statsRoutes.js";
 
 async function startServer() {
@@ -44,6 +45,7 @@ async function startServer() {
   app.use("/api/auth", authRoutes);
   app.use("/api/products", productRoutes);
   app.use("/api/orders", orderRoutes);
+  app.use("/api/cart", cartRoutes);
   app.use("/api/stats", statsRoutes);
 
   // Handle 404 routes (Route not found)
