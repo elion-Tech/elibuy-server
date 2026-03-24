@@ -65,6 +65,13 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
+    console.log(`🗄️  Connected to MongoDB Database: "${mongoose.connection.name}"`);
+    
+    if (mongoose.connection.name === 'test') {
+      console.warn("⚠️  WARNING: You are connected to the default 'test' database.");
+      console.warn("   Please update MONGODB_URI in your .env file to include the database name.");
+      console.warn("   Example: ...mongodb.net/elibuy?retryWrites=true...");
+    }
   });
 }
 
