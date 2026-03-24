@@ -125,6 +125,8 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
 export const getMyOrders = async (req: AuthRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
 
+  console.log(`[GetMyOrders] Fetching orders for User ID: ${req.user.id} (Role: ${req.user.role})`);
+
   try {
     let orders;
     if (req.user.role === 'SHOPPER') {
@@ -157,6 +159,7 @@ export const getMyOrders = async (req: AuthRequest, res: Response) => {
         })
         .sort({ createdAt: -1 });
     }
+    console.log(`[GetMyOrders] Found ${orders.length} orders.`);
     res.json(orders.map(o => ({ ...o.toObject(), id: o._id.toString() })));
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -467,6 +470,10 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     console.log(`[CreateOrder] SUCCESS!`);
     console.log(`   - ID: ${savedOrder._id}`);
     console.log(`   - LOCATION: ${(savedOrder.db as any).name}.${savedOrder.collection.collectionName}`);
+    
+    // VERIFICATION: Count orders immediately to prove persistence
+    const orderCount = await Order.countDocuments();
+    console.log(`[CreateOrder] VERIFICATION: Total Orders in DB '${(savedOrder.db as any).name}': ${orderCount}`);
 
     for (const item of orderItems) {
       await Product.findByIdAndUpdate(item.product_id, { $inc: { stock: -item.quantity } });
