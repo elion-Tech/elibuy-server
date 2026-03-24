@@ -348,7 +348,9 @@ export const deleteOrder = async (req: AuthRequest, res: Response) => {
 export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
 
-  const { shippingDetails, payment_reference } = req.body;
+  const { shippingDetails, payment_reference, shipping_cost } = req.body;
+
+  console.log(`[CreateOrder] Processing for user: ${req.user.id}, Ref: ${payment_reference}`);
 
   // 1. Security Check: Verify Payment with Paystack (Essential without Webhooks)
   const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
@@ -361,6 +363,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       }
 
       // Calls Paystack API
+      // Note: Node 18+ has built-in fetch. If on older Node, ensure 'node-fetch' is installed or polyfilled.
       const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${payment_reference}`, {
         headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` }
       });
@@ -382,7 +385,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     // @ts-ignore
     const cart = await Cart.findOne({ user: req.user.id });
 
-    if (!cart || cart.items.length === 0) {
+    if (!cart || !cart.items || cart.items.length === 0) {
       return res.status(400).json({ error: "Cart is empty" });
     }
 
@@ -410,7 +413,9 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       total_amount += product.price * item.quantity;
     }
 
-    // Add a check to ensure there are items to order
+    // Add shipping cost to total
+    total_amount += Number(shipping_cost || 0);
+
     if (orderItems.length === 0) {
       return res.status(400).json({ error: "All items in your cart are no longer available." });
     }
@@ -433,7 +438,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     }
 
     // @ts-ignore
-    await Cart.findOneAndDelete({ user: req.user.id });
+    await Cart.findOneAndDelete({ user: req.user.id }).catch(err => console.error("Failed to clear cart:", err));
 
     if (shopper.email) {
       sendOrderConfirmationEmail(shopper.email, savedOrder).catch(console.error);
