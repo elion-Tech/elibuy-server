@@ -466,7 +466,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     const savedOrder = await order.save();
     console.log(`[CreateOrder] SUCCESS!`);
     console.log(`   - ID: ${savedOrder._id}`);
-    console.log(`   - LOCATION: ${savedOrder.db.databaseName}.${savedOrder.collection.collectionName}`);
+    console.log(`   - LOCATION: ${(savedOrder.db as any).name}.${savedOrder.collection.collectionName}`);
 
     for (const item of orderItems) {
       await Product.findByIdAndUpdate(item.product_id, { $inc: { stock: -item.quantity } });
