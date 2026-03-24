@@ -67,12 +67,14 @@ async function startServer() {
     console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
     
     // CRITICAL DEBUG LOGGING
+    const dbName = mongoose.connection.db ? mongoose.connection.db.databaseName : 'UNKNOWN';
     console.log(`=================================================`);
-    console.log(`🚀 ACTIVE DATABASE:  "${mongoose.connection.name}"`);
-    console.log(`📝 CHECK HERE FOR DATA: ${mongoose.connection.name}.orders`);
+    console.log(`🚀 ACTIVE DATABASE:  "${dbName}"`);
+    console.log(`📝 CHECK HERE FOR DATA: ${dbName}.orders`);
+    console.log(`⚠️  URI PROVIDED: ${process.env.MONGODB_URI?.split('@')[1] || 'Hidden'}`); // Log part of URI to verify
     console.log(`=================================================`);
     
-    if (mongoose.connection.name === 'test') {
+    if (dbName === 'test') {
       console.warn("⚠️  WARNING: You are connected to the default 'test' database.");
       console.warn("   Please update MONGODB_URI in your .env file to include the database name.");
       console.warn("   Example: ...mongodb.net/elibuy?retryWrites=true...");

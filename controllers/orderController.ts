@@ -464,7 +464,9 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
 
     console.log(`[CreateOrder] Saving to database...`);
     const savedOrder = await order.save();
-    console.log(`[CreateOrder] SUCCESS! Saved Order ${savedOrder._id} to Database: ${mongoose.connection.db?.databaseName}`);
+    console.log(`[CreateOrder] SUCCESS!`);
+    console.log(`   - ID: ${savedOrder._id}`);
+    console.log(`   - LOCATION: ${savedOrder.db.databaseName}.${savedOrder.collection.collectionName}`);
 
     for (const item of orderItems) {
       await Product.findByIdAndUpdate(item.product_id, { $inc: { stock: -item.quantity } });
