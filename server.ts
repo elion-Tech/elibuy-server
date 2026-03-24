@@ -65,7 +65,12 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT} in ${process.env.NODE_ENV || 'development'} mode`);
-    console.log(`🗄️  Connected to MongoDB Database: "${mongoose.connection.name}"`);
+    
+    // CRITICAL DEBUG LOGGING
+    console.log(`=================================================`);
+    console.log(`🚀 ACTIVE DATABASE:  "${mongoose.connection.name}"`);
+    console.log(`📝 CHECK HERE FOR DATA: ${mongoose.connection.name}.orders`);
+    console.log(`=================================================`);
     
     if (mongoose.connection.name === 'test') {
       console.warn("⚠️  WARNING: You are connected to the default 'test' database.");
