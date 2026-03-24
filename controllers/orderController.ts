@@ -57,7 +57,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       total_amount: Number(total_amount),
       payment_reference,
       status: 'PAID',
-      shippingDetails: shippingDetails || {}, // Save shipping details
+      shippingDetails: shippingDetails || {},
       items: orderItems
     });
     
@@ -189,100 +189,6 @@ export const updateOrderStatus = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// Geopolitical Zones in Nigeria
-const ZONES: { [key: string]: string } = {
-  'Benue': 'northCentral', 'Kogi': 'northCentral', 'Kwara': 'northCentral', 'Nasarawa': 'northCentral', 'Niger': 'northCentral', 'Plateau': 'northCentral', 'FCT': 'northCentral', 'Abuja': 'northCentral',
-  'Adamawa': 'northEast', 'Bauchi': 'northEast', 'Borno': 'northEast', 'Gombe': 'northEast', 'Taraba': 'northEast', 'Yobe': 'northEast',
-  'Jigawa': 'northWest', 'Kaduna': 'northWest', 'Kano': 'northWest', 'Katsina': 'northWest', 'Kebbi': 'northWest', 'Sokoto': 'northWest', 'Zamfara': 'northWest',
-  'Abia': 'southEast', 'Anambra': 'southEast', 'Ebonyi': 'southEast', 'Enugu': 'southEast', 'Imo': 'southEast',
-  'Akwa Ibom': 'southSouth', 'Bayelsa': 'southSouth', 'Cross River': 'southSouth', 'Delta': 'southSouth', 'Edo': 'southSouth', 'Rivers': 'southSouth',
-  'Ekiti': 'southWest', 'Lagos': 'southWest', 'Ogun': 'southWest', 'Ondo': 'southWest', 'Osun': 'southWest', 'Oyo': 'southWest'
-};
-
-export const calculateShipping = async (req: Request, res: Response) => {
-  const { state, items } = req.body;
-  
-  if (!state || !items || !Array.isArray(items) || items.length === 0) {
-    return res.status(200).json({ shippingCost: 0 });
-  }
-
-  // Case-insensitive lookup
-  const normalizedState = state.trim().toLowerCase();
-
-  if (normalizedState === 'international') {
-    return res.status(200).json({ shippingCost: 0, isInternational: true });
-  }
-
-  const zoneKey = Object.keys(ZONES).find(k => k.toLowerCase() === normalizedState);
-  const destinationZone = zoneKey ? ZONES[zoneKey] : undefined;
-
-  // If destination is not a valid Nigerian state and not international, it's an error.
-  if (!destinationZone) {
-    return res.status(400).json({ error: 'Wrong state inputted' });
-  }
-
-  try {
-    // Group items by vendor
-    const vendorItems: { [key: string]: any[] } = {};
-    
-    // We need to fetch product details to get vendor_id and potential overrides
-    await Promise.all(items.map(async (item: any) => {
-      const product = await Product.findById(item.product_id || item.id);
-      if (product) {
-        const vId = product.vendor_id.toString();
-        if (!vendorItems[vId]) vendorItems[vId] = [];
-        vendorItems[vId].push({ ...item, product });
-      }
-    }));
-
-    let totalShipping = 0;
-
-    for (const vendorId in vendorItems) {
-      const vItems = vendorItems[vendorId];
-      const vendor = await User.findById(vendorId);
-      
-      if (!vendor || !vendor.vendorSettings || !vendor.vendorSettings.state) {
-        // Fallback if vendor hasn't set up logistics: default modest fee or 0
-        totalShipping += 1500; 
-        continue;
-      }
-
-      const vendorState = vendor.vendorSettings.state;
-      const logistics = vendor.vendorSettings.logistics;
-
-      // 1. Calculate Standard Shipping for this vendor (applied once per vendor order)
-      let vendorShippingCost = 0;
-      
-      if (vendorState === state) {
-        vendorShippingCost = logistics?.sameState || 0;
-      } else {
-        // @ts-ignore
-        vendorShippingCost = logistics?.[destinationZone] || 0;
-      }
-
-      // 2. Check for Product Level Overrides
-      // Logic: If a product has an override, we add that SPECIFIC cost. 
-      // If ANY product in the bundle does NOT have an override, we must charge the Base Vendor Rate.
-      // If ALL products have overrides, we MIGHT strip the base rate, but usually base rate implies "delivery trip". 
-      // To keep it functional: Base Rate + Sum(Overrides).
-      
-      let hasStandardProducts = false;
-
-      for (const vItem of vItems) {
-        if (vItem.product.shippingCost && vItem.product.shippingCost > 0) {
-          totalShipping += (vItem.product.shippingCost * vItem.quantity);
-        } 
-      }
-      
-      totalShipping += vendorShippingCost;
-    }
-
-    res.json({ shippingCost: totalShipping });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-};
-
 export const debugCheckDb = async (req: Request, res: Response) => {
   try {
     const dbName = mongoose.connection.db ? mongoose.connection.db.databaseName : 'UNKNOWN';
@@ -385,10 +291,9 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const { shippingDetails, payment_reference, shipping_cost } = req.body;
+  const { payment_reference } = req.body;
 
   console.log(`[CreateOrder] Processing for user: ${req.user.id}, Ref: ${payment_reference}`);
-  console.log(`[CreateOrder] Received Shipping Details:`, JSON.stringify(shippingDetails));
 
   // 1. Security Check: Verify Payment with Paystack (Essential without Webhooks)
   const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
@@ -476,9 +381,6 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       total_amount += product.price * item.quantity;
     }
 
-    // Add shipping cost to total
-    total_amount += Number(shipping_cost || 0);
-
     if (orderItems.length === 0) {
       return res.status(400).json({ error: "All items in your cart are no longer available." });
     }
@@ -492,7 +394,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       total_amount, 
       payment_reference,
       status: 'PAID',
-      shippingDetails,
+      shippingDetails: {},
       items: orderItems
     });
 
