@@ -8,6 +8,7 @@ import {
   getOrderById,
   deleteOrder,
   calculateShipping,
+  createOrderFromCart,
 } from '../controllers/orderController.js';
 import { authenticateToken } from '../middleware/auth.js';
 
@@ -15,6 +16,7 @@ const router = express.Router();
 
 // Create Order Route
 router.post('/', authenticateToken, createOrder);
+router.post('/from-cart', authenticateToken, createOrderFromCart);
 router.post('/cost', calculateShipping);
 router.get('/', authenticateToken, getAllOrders);
 router.post('/verify', authenticateToken, verifyPayment);
