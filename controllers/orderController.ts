@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { Request, Response } from 'express';
 import { Order, Product, User, Cart, IProduct, IUser } from '../models/mongooseModels.js';
 import mongoose from 'mongoose';
@@ -119,6 +120,45 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
+};
+
+export const handlePaystackWebhook = async (req: Request, res: Response) => {
+  const secret = process.env.PAYSTACK_SECRET_KEY;
+  if (!secret) {
+    console.error("[Webhook] PAYSTACK_SECRET_KEY is not defined");
+    return res.status(500).send();
+  }
+
+  // 1. Validate the event signature from Paystack
+  const hash = crypto.createHmac('sha512', secret).update(JSON.stringify(req.body)).digest('hex');
+  if (hash !== req.headers['x-paystack-signature']) {
+    return res.status(400).send('Invalid signature');
+  }
+
+  // 2. Process the event
+  const event = req.body;
+  
+  if (event.event === 'charge.success') {
+    const reference = event.data.reference;
+    console.log(`[Webhook] Payment successful for ref: ${reference}`);
+
+    try {
+      const order = await Order.findOne({ payment_reference: reference });
+      if (order) {
+        if (order.status !== 'PAID') {
+          order.status = 'PAID';
+          await order.save();
+          console.log(`[Webhook] Order ${order._id} updated to PAID`);
+        } else {
+           console.log(`[Webhook] Order ${order._id} is already PAID`);
+        }
+      }
+    } catch (error) {
+      console.error(`[Webhook] Error updating order:`, error);
+    }
+  }
+
+  res.status(200).send();
 };
 
 export const getMyOrders = async (req: AuthRequest, res: Response) => {
