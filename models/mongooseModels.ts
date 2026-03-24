@@ -40,6 +40,14 @@ export interface IOrder extends Document, Omit<OrderType, 'id' | 'shopper_id'> {
     size?: string;
   }[];
 }
+export interface ICart extends Document {
+  user: mongoose.Types.ObjectId;
+  items: {
+    product: mongoose.Types.ObjectId;
+    quantity: number;
+    _id?: mongoose.Types.ObjectId;
+  }[];
+}
 
 const userSchema = new Schema<IUser>({
   name: { type: String, required: true },
@@ -100,6 +108,15 @@ const orderSchema = new Schema<IOrder>({
   }]
 }, { timestamps: true });
 
+const cartSchema = new Schema<ICart>({
+  user: { type: Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
+  items: [{
+    product: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
+    quantity: { type: Number, required: true, min: 1, default: 1 }
+  }]
+}, { timestamps: true });
+
 export const User = mongoose.model<IUser>('User', userSchema);
 export const Product = mongoose.model<IProduct>('Product', productSchema);
 export const Order = mongoose.model<IOrder>('Order', orderSchema);
+export const Cart = mongoose.model<ICart>('Cart', cartSchema);
