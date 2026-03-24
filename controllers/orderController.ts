@@ -354,6 +354,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
   const { shippingDetails, payment_reference, shipping_cost } = req.body;
 
   console.log(`[CreateOrder] Processing for user: ${req.user.id}, Ref: ${payment_reference}`);
+  console.log(`[CreateOrder] Received Shipping Details:`, JSON.stringify(shippingDetails));
 
   // 1. Security Check: Verify Payment with Paystack (Essential without Webhooks)
   const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
@@ -449,6 +450,12 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     }
 
     console.log(`[CreateOrder] Constructing Order object...`);
+    
+    // DIAGNOSTIC LOGS: Check where the data is actually going
+    console.log(`[CreateOrder] Mongoose Connection State: ${mongoose.connection.readyState}`);
+    console.log(`[CreateOrder] Target Database Name: ${mongoose.connection.db?.databaseName}`);
+    console.log(`[CreateOrder] Target Collection Name: ${Order.collection.name}`);
+
     const order = new Order({
       shopper_id: userId,
       shopper_name: shopper.name,
@@ -461,8 +468,17 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     });
 
     console.log(`[CreateOrder] Saving to database...`);
+    
+    // Validate manually to catch errors before save
+    const validationError = order.validateSync();
+    if (validationError) {
+      console.error("[CreateOrder] Validation Failed:", validationError.message);
+      return res.status(400).json({ error: "Order validation failed: " + validationError.message });
+    }
+
     const savedOrder = await order.save();
-    console.log(`[CreateOrder] SUCCESS! Order saved with ID: ${savedOrder._id}`);
+    console.log(`[CreateOrder] SUCCESS! Saved Order ${savedOrder._id} to DB: ${mongoose.connection.db?.databaseName}`);
+    console.log(`[CreateOrder] FULL SAVED DATA:`, JSON.stringify(savedOrder.toObject(), null, 2));
 
     for (const item of orderItems) {
       await Product.findByIdAndUpdate(item.product_id, { $inc: { stock: -item.quantity } });
