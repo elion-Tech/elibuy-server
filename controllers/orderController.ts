@@ -410,6 +410,11 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       total_amount += product.price * item.quantity;
     }
 
+    // Add a check to ensure there are items to order
+    if (orderItems.length === 0) {
+      return res.status(400).json({ error: "All items in your cart are no longer available." });
+    }
+
     const order = new Order({
       shopper_id: req.user.id,
       shopper_name: shopper.name,
