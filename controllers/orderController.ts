@@ -523,7 +523,10 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
 
     res.status(201).json({ success: true, orderId: savedOrder._id });
   } catch (error: any) {
-    console.error("Error creating order from cart:", error);
+    console.error(`[CreateOrder] CRITICAL FAILURE for user ${req.user.id}:`, error.message);
+    if (error.stack) {
+      console.error(error.stack);
+    }
     res.status(500).json({ error: error.message });
   }
 };
