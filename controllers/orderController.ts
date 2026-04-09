@@ -294,7 +294,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const { payment_reference } = req.body;
+  const { payment_reference, shippingDetails } = req.body; // Destructure shippingDetails for clarity
 
   console.log(`[CreateOrder] Processing for user: ${req.user.id}, Ref: ${payment_reference}`);
 
@@ -392,7 +392,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       total_amount, 
       payment_reference,
       status: 'PAID',
-      shippingDetails: req.body.shippingDetails || {},
+      shippingDetails: shippingDetails || {}, // Use the destructured variable
       items: orderItems
     });
 
