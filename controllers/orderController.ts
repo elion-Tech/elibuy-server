@@ -128,24 +128,17 @@ export const handlePaystackWebhook = async (req: Request, res: Response) => {
       return res.sendStatus(400);
     }
 
-    // RACE CONDITION FIX: The Webhook often arrives before the /from-cart DB write finishes.
-    // We check, then wait, then check again.
-    let order = await Order.findOne({ payment_reference: reference });
-    
-    if (!order) {
-      console.log(`[Webhook] Order ${reference} not found in DB yet. Retrying in 3 seconds...`);
-      await new Promise(resolve => setTimeout(resolve, 3000));
+    // RACE CONDITION FIX: Improved polling logic. Check 5 times every 2 seconds.
+    let order = null;
+    for (let i = 0; i < 5; i++) {
       order = await Order.findOne({ payment_reference: reference });
+      if (order) break;
+      console.log(`[Webhook] Order ${reference} not found in DB yet (Attempt ${i + 1}/5). Retrying in 2s...`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
     if (!order) {
-      console.log(`[Webhook] Still not found. Final retry in 5 seconds...`);
-      await new Promise(resolve => setTimeout(resolve, 5000));
-      order = await Order.findOne({ payment_reference: reference });
-    }
-
-    if (!order) {
-      console.error(`[Webhook] CRITICAL FAILURE: Order ${reference} not found after 8s of retries. The database write in createOrderFromCart likely failed.`);
+      console.error(`[Webhook] CRITICAL FAILURE: Order ${reference} not found after 10s of retries. Either the frontend request failed to reach the server, or the database write errored out.`);
       return res.sendStatus(200); // Acknowledge, but no action needed
     }
 
@@ -403,7 +396,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
 
   const { payment_reference, shippingDetails, total_amount: payloadAmount } = req.body;
 
-  console.log(`[CreateOrder] Processing for user: ${req.user.id}, Ref: ${payment_reference}`);
+  console.log(`[CreateOrder] REQUEST RECEIVED: User ${req.user.id}, Ref ${payment_reference}`);
   
   if (!payment_reference) {
     console.warn(`[CreateOrder] Warning: No payment_reference provided by frontend.`);
@@ -430,7 +423,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${payment_reference}`, {
         headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` }
       });
-      const verifyData = await verifyRes.json() as any;
+      const verifyData = (await verifyRes.json()) as any;
 
       if (!verifyData.status || verifyData.data.status !== 'success' || verifyData.data.amount < 1) { // amount < 1 check is important
         console.error(`[CreateOrder] Paystack synchronous verification failed for reference ${payment_reference}:`, verifyData);
@@ -507,7 +500,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     // If payloadAmount is provided, use it to verify against our calculated total
     const finalAmount = payloadAmount ? Number(payloadAmount) : total_amount;
 
-    console.log(`[CreateOrder] PRE-WRITE: Building order for user ${req.user.id}. Total: ${finalAmount}, Status: ${orderStatus}`);
+    console.log(`[CreateOrder] PRE-WRITE: Order for user ${req.user.id}. Total: ${finalAmount}, Status: ${orderStatus}`);
 
     // 1. Create the Order instance
     const order = new Order({
@@ -524,14 +517,14 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     // 2. Validate synchronously before attempting to save
     const validationError = order.validateSync();
     if (validationError) {
-      console.error(`[CreateOrder] Mongoose Validation Failed:`, JSON.stringify(validationError.errors, null, 2));
+      console.error(`[CreateOrder] VALIDATION FAILED:`, JSON.stringify(validationError.errors, null, 2));
       return res.status(400).json({ error: "Order data validation failed", details: validationError.message });
     }
 
     // 3. Attempt DB write
-    console.log(`[CreateOrder] DB WRITE START: Attempting to save order ${payment_reference} to MongoDB...`);
-    const savedOrder = await Order.create(order);
-    console.log(`[CreateOrder] DB WRITE SUCCESS: Order ${savedOrder._id} logged. Status: ${orderStatus}`);
+    console.log(`[CreateOrder] DB WRITE START: Saving order ${payment_reference}...`);
+    const savedOrder = await order.save();
+    console.log(`[CreateOrder] DB WRITE SUCCESS: Order ${savedOrder._id} saved. Status: ${orderStatus}`);
     
     // Only perform activities if we successfully verified via outgoing call
     if (isVerified || isDemo) {
