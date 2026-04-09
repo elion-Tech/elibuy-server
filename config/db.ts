@@ -91,7 +91,8 @@ export const connectDB = async () => {
             shippingDetails: {
               state: 'Lagos',
               lga: 'Ikeja',
-              streetAddress: '123 Test St'
+              streetAddress: '123 Test St',
+              phoneNumber: '08012345678'
             },
             items: [
               {
@@ -114,7 +115,8 @@ export const connectDB = async () => {
             shippingDetails: {
               state: 'Abuja',
               lga: 'AMAC',
-              streetAddress: '456 Sample Rd'
+              streetAddress: '456 Sample Rd',
+              phoneNumber: '09012345678'
             },
             items: [
               {

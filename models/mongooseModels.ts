@@ -26,10 +26,10 @@ export interface IOrder extends Document, Omit<OrderType, 'id' | 'shopper_id' | 
   shopper_name?: string;
   shopper_email?: string;
   shippingDetails: {
-    state?: string;
-    lga?: string;
-    streetAddress?: string;
-    phoneNumber?: string;
+    state: string;
+    lga: string;
+    streetAddress: string;
+    phoneNumber: string;
     city?: string;
   };
   items: {
@@ -96,10 +96,10 @@ const orderSchema = new Schema<IOrder>({
   },
   payment_reference: { type: String },
   shippingDetails: {
-    state: { type: String },
-    lga: { type: String },
-    streetAddress: { type: String },
-    phoneNumber: { type: String },
+    state: { type: String, required: true },
+    lga: { type: String, required: true },
+    streetAddress: { type: String, required: true },
+    phoneNumber: { type: String, required: true },
     city: { type: String }
   },
   items: [{

@@ -404,6 +404,13 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
   const { payment_reference, shippingDetails, total_amount: payloadAmount } = req.body;
 
   console.log(`[CreateOrder] >>> PURCHASE LOG START: User ${req.user.id}, Ref: ${payment_reference || 'MISSING'}`);
+
+  // Senior Dev: Explicit validation of the full shipping contract
+  const { streetAddress, state, lga, phoneNumber } = shippingDetails || {};
+  if (!streetAddress || !state || !lga || !phoneNumber) {
+    console.error(`[CreateOrder] ABORTED: Incomplete shipping details for user ${req.user.id}`);
+    return res.status(400).json({ error: "Full shipping info (Address, State, LGA, and Phone) is required." });
+  }
   
   if (!payment_reference) {
     console.error(`[CreateOrder] FAILED: No payment_reference provided.`);
