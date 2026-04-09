@@ -96,6 +96,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
 };
 
 export const handlePaystackWebhook = async (req: Request, res: Response) => {
+  console.log("[Webhook] Paystack webhook activated. Processing incoming event...");
   const secret = process.env.PAYSTACK_SECRET_KEY;
   if (!secret) {
     console.error("[Webhook] CRITICAL: PAYSTACK_SECRET_KEY is not set. Cannot verify webhook signature.");
@@ -145,10 +146,10 @@ export const handlePaystackWebhook = async (req: Request, res: Response) => {
 
     // Only process if the order was waiting for verification
     if (order.status === 'PENDING_VERIFICATION') {
-      console.log(`[Webhook] Confirming payment for order: ${order._id} (Reference: ${reference})`);
+      console.log(`[Webhook] PAYMENT SUCCESS: Confirming payment for order: ${order._id} (Reference: ${reference})`);
       order.status = 'PAID';
       await order.save();
-      console.log(`[Webhook] Order ${order._id} status updated to PAID.`);
+      console.log(`[Webhook] PURCHASE LOGGED: Order ${order._id} updated to PAID in database via Webhook.`);
 
       // Post-payment activities (Now handled since we couldn't do it in the controller)
       console.log(`[Webhook] Activity: Updating product stocks for order ${order._id}...`);
@@ -499,11 +500,11 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     });
     console.log(`[CreateOrder] Saving to database...`);
     const savedOrder = await order.save();
-    console.log(`[CreateOrder] SUCCESS! Order ID: ${savedOrder._id}`);
+    console.log(`[CreateOrder] PURCHASE LOGGED: Order ${savedOrder._id} successfully created in database with status: ${orderStatus}`);
     
     // Only perform activities if we successfully verified via outgoing call
     if (isVerified || isDemo) {
-      console.log(`[CreateOrder] Activity: Updating product stocks...`);
+      console.log(`[CreateOrder] PAYMENT SUCCESS: Verified synchronously. Updating product stocks...`);
       for (const item of orderItems) {
         await Product.findByIdAndUpdate(item.product_id, { $inc: { stock: -item.quantity } });
         console.log(`[CreateOrder] Stock decremented for Product: ${item.name} (${item.product_id}) by ${item.quantity}`);
@@ -516,6 +517,8 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
 
       // Only clear cart immediately if verified. Otherwise, the webhook handles it.
       await Cart.findOneAndDelete({ user: userId }).then(() => console.log(`[CreateOrder] Activity: Cart cleared for user ${userId}`)).catch(err => console.error("Failed to clear cart:", err));
+    } else {
+      console.log(`[CreateOrder] PAYMENT PENDING: Outgoing verification failed/blocked. Order ${savedOrder._id} is awaiting Webhook activation.`);
     }
 
     res.status(201).json({ success: true, orderId: savedOrder._id });
