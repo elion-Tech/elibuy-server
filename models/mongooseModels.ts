@@ -26,9 +26,9 @@ export interface IOrder extends Document, Omit<OrderType, 'id' | 'shopper_id'> {
   shopper_name?: string;
   shopper_email?: string;
   shippingDetails: {
-    state: string;
-    lga: string;
-    streetAddress: string;
+    state?: string;
+    lga?: string;
+    streetAddress?: string;
     phoneNumber?: string;
     city?: string;
   };
@@ -96,11 +96,11 @@ const orderSchema = new Schema<IOrder>({
   },
   payment_reference: { type: String },
   shippingDetails: {
-    state: { type: String, default: 'N/A' },
-    lga: { type: String, default: 'N/A' },
-    streetAddress: { type: String, default: 'N/A' },
-    phoneNumber: { type: String, default: 'N/A' },
-    city: { type: String, default: 'N/A' }
+    state: { type: String },
+    lga: { type: String },
+    streetAddress: { type: String },
+    phoneNumber: { type: String },
+    city: { type: String }
   },
   items: [{
     product_id: { type: Schema.Types.ObjectId, ref: 'Product', required: true },

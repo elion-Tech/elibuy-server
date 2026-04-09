@@ -25,9 +25,9 @@ export interface Order {
   status: 'PENDING' | 'PAID' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED' | 'PENDING_VERIFICATION';
   payment_reference: string;
   shippingDetails: {
-    state: string;
-    lga: string;
-    streetAddress: string;
+    state?: string;
+    lga?: string;
+    streetAddress?: string;
     phoneNumber?: string;
     city?: string;
   };
