@@ -22,7 +22,7 @@ export interface Order {
   id: string;
   shopper_id: string;
   total_amount: number;
-  status: 'PENDING' | 'PAID' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
+  status: 'PENDING' | 'PAID' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED' | 'PENDING_VERIFICATION';
   payment_reference: string;
   created_at: string;
 }

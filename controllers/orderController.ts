@@ -116,10 +116,8 @@ export const handlePaystackWebhook = async (req: Request, res: Response) => {
     const order = await Order.findOne({ payment_reference: reference });
 
     // Only process if the order was waiting for verification
-    if (order && (order.status as string) === 'PENDING_VERIFICATION') {
-      console.log(`[Webhook] Confirming payment for order: ${order._id}`);
-      (order as any).status = 'PAID';
-      await order.save();
+    if (order && (`[Webhook] Confirming payment for order: ${order._id}`);
+      order.status = 'PAID';a
 
       // Post-payment activities (Now handled since we couldn't do it in the controller)
       for (const item of order.items) {
@@ -128,9 +126,8 @@ export const handlePaystackWebhook = async (req: Request, res: Response) => {
       }
 
       if (order.shopper_email) {
-        sendOrderConfirmationEmail(order.shopper_email as string, order).catch(console.error);
+        sendOrderConfirmationEmail(order.shopper_email, order).catch(console.error);
       }
-    }
   }
   res.sendStatus(200);
 };
@@ -338,10 +335,9 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
 
   console.log(`[CreateOrder] Processing for user: ${req.user.id}, Ref: ${payment_reference}`);
   
-  let orderStatus = 'PAID';
+  let orderStatus: 'PAID' | 'PENDING_VERIFICATION' = 'PAID';
   let isVerified = false;
-
-  const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
+SC = process.env.PAYSTACK_SECRET_KEY;
 
   // SKIP verification if this is a demo reference from the frontend simulation
   const isDemo = payment_reference && String(payment_reference).startsWith('DEMO-');
@@ -437,11 +433,10 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       shopper_email: shopper.email,
       total_amount, 
       payment_reference,
-      status: orderStatus as any,
+      status: orderStatus,
       shippingDetails: shippingDetails || {}, // Use the destructured variable
       items: orderItems
     });
-
     console.log(`[CreateOrder] Saving to database...`);
     const savedOrder = await order.save();
     console.log(`[CreateOrder] SUCCESS! Order ID: ${savedOrder._id}`);

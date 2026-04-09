@@ -89,7 +89,7 @@ const orderSchema = new Schema<IOrder>({
   total_amount: { type: Number, required: true },
   status: { 
     type: String, 
-    enum: ['PENDING', 'PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'], 
+    enum: ['PENDING', 'PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'PENDING_VERIFICATION'], 
     default: 'PENDING' 
   },
   payment_reference: { type: String },
