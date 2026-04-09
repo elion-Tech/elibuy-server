@@ -128,17 +128,31 @@ export const handlePaystackWebhook = async (req: Request, res: Response) => {
       return res.sendStatus(400);
     }
 
-    const order = await Order.findOne({ payment_reference: reference });
+    // RACE CONDITION FIX: The Webhook often arrives before the /from-cart DB write finishes.
+    // We check, then wait, then check again.
+    let order = await Order.findOne({ payment_reference: reference });
+    
+    if (!order) {
+      console.log(`[Webhook] Order ${reference} not found in DB yet. Retrying in 3 seconds...`);
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      order = await Order.findOne({ payment_reference: reference });
+    }
 
     if (!order) {
-      console.warn(`[Webhook] Order not found for reference ${reference}. It might have failed initial creation or is a duplicate webhook.`);
+      console.log(`[Webhook] Still not found. Final retry in 5 seconds...`);
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      order = await Order.findOne({ payment_reference: reference });
+    }
+
+    if (!order) {
+      console.error(`[Webhook] CRITICAL FAILURE: Order ${reference} not found after 8s of retries. The database write in createOrderFromCart likely failed.`);
       return res.sendStatus(200); // Acknowledge, but no action needed
     }
 
     // Additional check: Ensure the amount matches (optional but good practice)
     // Paystack amount is in kobo/cents, so compare with order total_amount * 100
     // Assuming order.total_amount is in Naira/Dollars
-    if (order.total_amount * 100 !== amount) {
+    if (Math.round(order.total_amount * 100) !== amount) {
       console.error(`[Webhook] Amount mismatch for order ${order._id}. Expected ${order.total_amount * 100}, got ${amount}.`);
       // You might want to flag this order for manual review
       return res.sendStatus(200);
@@ -146,10 +160,10 @@ export const handlePaystackWebhook = async (req: Request, res: Response) => {
 
     // Only process if the order was waiting for verification
     if (order.status === 'PENDING_VERIFICATION') {
-      console.log(`[Webhook] PAYMENT SUCCESS: Confirming payment for order: ${order._id} (Reference: ${reference})`);
+      console.log(`[Webhook] ASYNC ACTIVATION: Confirming payment for order: ${order._id} (Ref: ${reference})`);
       order.status = 'PAID';
       await order.save();
-      console.log(`[Webhook] PURCHASE LOGGED: Order ${order._id} updated to PAID in database via Webhook.`);
+      console.log(`[Webhook] PURCHASE FINALIZED: Order ${order._id} updated to PAID in database.`);
 
       // Post-payment activities (Now handled since we couldn't do it in the controller)
       console.log(`[Webhook] Activity: Updating product stocks for order ${order._id}...`);
@@ -387,10 +401,14 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const { payment_reference, shippingDetails } = req.body;
+  const { payment_reference, shippingDetails, total_amount: payloadAmount } = req.body;
 
   console.log(`[CreateOrder] Processing for user: ${req.user.id}, Ref: ${payment_reference}`);
   
+  if (!payment_reference) {
+    console.warn(`[CreateOrder] Warning: No payment_reference provided by frontend.`);
+  }
+
   let orderStatus: 'PAID' | 'PENDING_VERIFICATION' = 'PAID';
   let isVerified = false;
   const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
@@ -465,46 +483,59 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       const vendor = product.vendor_id as unknown as IUser;
 
       if (product.stock < item.quantity) {
-        console.error(`[CreateOrder] Insufficient stock for product ${product.name} (ID: ${product._id}). Requested: ${item.quantity}, Available: ${product.stock}.`);
+        console.error(`[CreateOrder] Insufficient stock for product ${product.name} (ID: ${product._id}).`);
         return res.status(400).json({ error: `Insufficient stock for ${product.name}. Only ${product.stock} available.` });
       }
 
       orderItems.push({
         product_id: product._id,
         vendor_id: vendor._id,
-        quantity: item.quantity,
-        price: product.price,
+        quantity: Number(item.quantity),
+        price: Number(product.price),
         name: product.name,
         image_url: product.image_url,
         vendor_name: vendor.name || 'Vendor',
       });
 
-      total_amount += product.price * item.quantity;
+      total_amount += Number(product.price) * Number(item.quantity);
     }
 
     if (orderItems.length === 0) {
       return res.status(400).json({ error: "All items in your cart are no longer available." });
     }
 
-    console.log(`[CreateOrder] Constructing Order object...`);
+    // If payloadAmount is provided, use it to verify against our calculated total
+    const finalAmount = payloadAmount ? Number(payloadAmount) : total_amount;
 
+    console.log(`[CreateOrder] PRE-WRITE: Building order for user ${req.user.id}. Total: ${finalAmount}, Status: ${orderStatus}`);
+
+    // 1. Create the Order instance
     const order = new Order({
       shopper_id: userId,
       shopper_name: shopper.name,
       shopper_email: shopper.email,
-      total_amount, 
+      total_amount: finalAmount, 
       payment_reference,
       status: orderStatus,
       shippingDetails: shippingDetails || {}, // Use the destructured variable
       items: orderItems
     });
-    console.log(`[CreateOrder] Saving to database...`);
-    const savedOrder = await order.save();
-    console.log(`[CreateOrder] PURCHASE LOGGED: Order ${savedOrder._id} successfully created in database with status: ${orderStatus}`);
+
+    // 2. Validate synchronously before attempting to save
+    const validationError = order.validateSync();
+    if (validationError) {
+      console.error(`[CreateOrder] Mongoose Validation Failed:`, JSON.stringify(validationError.errors, null, 2));
+      return res.status(400).json({ error: "Order data validation failed", details: validationError.message });
+    }
+
+    // 3. Attempt DB write
+    console.log(`[CreateOrder] DB WRITE START: Attempting to save order ${payment_reference} to MongoDB...`);
+    const savedOrder = await Order.create(order);
+    console.log(`[CreateOrder] DB WRITE SUCCESS: Order ${savedOrder._id} logged. Status: ${orderStatus}`);
     
     // Only perform activities if we successfully verified via outgoing call
     if (isVerified || isDemo) {
-      console.log(`[CreateOrder] PAYMENT SUCCESS: Verified synchronously. Updating product stocks...`);
+      console.log(`[CreateOrder] SYNC ACTIVATION: Verified immediately. Performing post-order tasks...`);
       for (const item of orderItems) {
         await Product.findByIdAndUpdate(item.product_id, { $inc: { stock: -item.quantity } });
         console.log(`[CreateOrder] Stock decremented for Product: ${item.name} (${item.product_id}) by ${item.quantity}`);
@@ -518,12 +549,13 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       // Only clear cart immediately if verified. Otherwise, the webhook handles it.
       await Cart.findOneAndDelete({ user: userId }).then(() => console.log(`[CreateOrder] Activity: Cart cleared for user ${userId}`)).catch(err => console.error("Failed to clear cart:", err));
     } else {
-      console.log(`[CreateOrder] PAYMENT PENDING: Outgoing verification failed/blocked. Order ${savedOrder._id} is awaiting Webhook activation.`);
+      console.log(`[CreateOrder] ASYNC FALLBACK: Server verification blocked. Order ${savedOrder._id} is PENDING until Webhook arrives.`);
     }
 
     res.status(201).json({ success: true, orderId: savedOrder._id });
   } catch (error: any) {
-    console.error(`[CreateOrder] CRITICAL FAILURE for user ${req.user.id}:`, error.message);
+    console.error(`[CreateOrder] CRITICAL FAILURE for user ${req.user.id}:`);
+    console.error(`[CreateOrder] Error Message: ${error.message}`);
     if (error.stack) {
       console.error(error.stack);
     }
