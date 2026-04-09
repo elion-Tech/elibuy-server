@@ -39,8 +39,8 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       const vendor = product.vendor_id as unknown as IUser;
 
       orderItems.push({
-        product_id: new mongoose.Types.ObjectId(product._id as string),
-        vendor_id: new mongoose.Types.ObjectId(vendor._id as string),
+        product_id: new mongoose.Types.ObjectId(product._id as any),
+        vendor_id: new mongoose.Types.ObjectId(vendor._id as any),
         quantity: Number(item.quantity),
         price: product.price, // ALWAYS use DB price
         name: product.name,
