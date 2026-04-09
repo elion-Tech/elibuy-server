@@ -513,9 +513,10 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
         console.log(`[CreateOrder] Activity: Triggering confirmation email to ${shopper.email}`);
         sendOrderConfirmationEmail(shopper.email, savedOrder).catch(console.error);
       }
-    }
 
-    await Cart.findOneAndDelete({ user: userId }).then(() => console.log(`[CreateOrder] Activity: Cart cleared for user ${userId}`)).catch(err => console.error("Failed to clear cart:", err));
+      // Only clear cart immediately if verified. Otherwise, the webhook handles it.
+      await Cart.findOneAndDelete({ user: userId }).then(() => console.log(`[CreateOrder] Activity: Cart cleared for user ${userId}`)).catch(err => console.error("Failed to clear cart:", err));
+    }
 
     res.status(201).json({ success: true, orderId: savedOrder._id });
   } catch (error: any) {
