@@ -21,7 +21,7 @@ export interface IProduct extends Document, Omit<ProductType, 'id' | 'vendor_id'
   shippingCost?: number; // Optional override
   vendor_id: mongoose.Types.ObjectId;
 }
-export interface IOrder extends Document, Omit<OrderType, 'id' | 'shopper_id'> {
+export interface IOrder extends Document, Omit<OrderType, 'id' | 'shopper_id' | 'items' | 'shippingDetails'> {
   shopper_id: mongoose.Types.ObjectId;
   shopper_name?: string;
   shopper_email?: string;

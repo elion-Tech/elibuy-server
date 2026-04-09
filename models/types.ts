@@ -31,6 +31,16 @@ export interface Order {
     phoneNumber?: string;
     city?: string;
   };
+  items: {
+    product_id: string;
+    vendor_id: string;
+    quantity: number;
+    price: number;
+    name?: string;
+    image_url?: string;
+    vendor_name?: string;
+    size?: string;
+  }[];
   created_at: string;
 }
 
