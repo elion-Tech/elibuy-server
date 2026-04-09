@@ -7,13 +7,17 @@ import {
   getOrderById,
   deleteOrder,
   debugCheckDb,
+  createOrderFromCart,
+  verifyPayment,
 } from '../controllers/orderController.js';
 import { authenticateToken } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // Order Operations
-router.post('/', authenticateToken, createOrder); // Creates order from Cart + Verifies Payment
+router.post('/', authenticateToken, createOrder); 
+router.post('/from-cart', authenticateToken, createOrderFromCart); // Creates order from cart after payment
+router.post('/verify', authenticateToken, verifyPayment);
 router.get('/my', authenticateToken, getMyOrders); // Get logged-in user's orders
 router.get('/:id', authenticateToken, getOrderById);
 router.patch('/:id/status', authenticateToken, updateOrderStatus);

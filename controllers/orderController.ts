@@ -40,6 +40,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
 
       orderItems.push({
         product_id: product._id,
+        vendor_id: product.vendor_id,
         quantity: Number(item.quantity),
         price: product.price, // ALWAYS use DB price
         name: product.name,
@@ -336,7 +337,6 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     const shopper = await User.findById(req.user.id);
     if (!shopper) return res.status(404).json({ error: "Shopper not found" });
 
-    // @ts-ignore
     const cart = await Cart.findOne({ user: userId });
 
     if (!cart || !cart.items || cart.items.length === 0) {
@@ -352,30 +352,26 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     for (const item of cart.items) {
       // Ensure we populate the vendor_id properly to get the vendor's name
       const product = await Product.findById(item.product).populate('vendor_id');
-      if (!product) {
+      if (!product || !product.vendor_id) {
         console.warn(`[CreateOrder] Product not found for item:`, item);
         continue;
       }
+
+      const vendor = product.vendor_id as unknown as IUser;
 
       if (product.stock < item.quantity) {
         console.warn(`[CreateOrder] Stock error for ${product.name}`);
         return res.status(400).json({ error: `Insufficient stock for ${product.name}` });
       }
 
-      // Safely access vendor name
-      let vendorName = 'Vendor';
-      if (product.vendor_id && (product.vendor_id as any).name) {
-        vendorName = (product.vendor_id as any).name;
-      }
-
       orderItems.push({
         product_id: product._id,
+        vendor_id: vendor._id,
         quantity: item.quantity,
         price: product.price,
         name: product.name,
         image_url: product.image_url,
-        // @ts-ignore
-        vendor_name: vendorName,
+        vendor_name: vendor.name || 'Vendor',
       });
 
       total_amount += product.price * item.quantity;
@@ -412,7 +408,6 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       await Product.findByIdAndUpdate(item.product_id, { $inc: { stock: -item.quantity } });
     }
 
-    // @ts-ignore
     await Cart.findOneAndDelete({ user: userId }).catch(err => console.error("Failed to clear cart:", err));
 
     if (shopper.email) {
