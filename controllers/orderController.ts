@@ -129,7 +129,7 @@ export const handlePaystackWebhook = async (req: Request, res: Response) => {
       return res.sendStatus(400);
     }
 
-    // RACE CONDITION FIX: Aggressive polling. Check 10 times every 2 seconds (20s total).
+    // RACE CONDITION FIX: Polling logic to wait for the /from-cart DB write.
     let order = null;
     for (let i = 0; i < 10; i++) {
       order = await Order.findOne({ payment_reference: reference });
@@ -140,15 +140,15 @@ export const handlePaystackWebhook = async (req: Request, res: Response) => {
 
     if (!order) {
       const totalOrdersInSystem = await Order.countDocuments();
-      console.error(`[Webhook] CRITICAL FAILURE: Order ${reference} not found after 20s. Total orders in DB: ${totalOrdersInSystem}. Check if /from-cart request crashed.`);
+      console.error(`[Webhook] CRITICAL FAILURE: Order ${reference} not found after 20s. Total orders in DB: ${totalOrdersInSystem}. Verify /from-cart request reached the server.`);
       return res.sendStatus(200); // Acknowledge, but no action needed
     }
 
     // Additional check: Ensure the amount matches (optional but good practice)
     // Paystack amount is in kobo/cents, so compare with order total_amount * 100
     // Assuming order.total_amount is in Naira/Dollars
-    const expectedKobo = Math.round(order.total_amount * 100);
-    if (expectedKobo !== amount) {
+    const expectedKobo = Math.round(Number(order.total_amount) * 100);
+    if (expectedKobo !== Number(amount)) {
       console.error(`[Webhook] Amount mismatch for order ${order._id}. Expected ${expectedKobo} kobo, got ${amount} kobo.`);
       // You might want to flag this order for manual review
       return res.sendStatus(200);
@@ -403,10 +403,10 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
 
   const { payment_reference, shippingDetails, total_amount: payloadAmount } = req.body;
 
-  console.log(`[CreateOrder] >>> PURCHASE LOG START: User ${req.user.id}, Ref: ${payment_reference || 'MISSING'}`);
+  console.log(`[CreateOrder] >>> START: User ${req.user.id}, Reference: ${payment_reference || 'MISSING'}`);
   
   if (!payment_reference) {
-    console.error(`[CreateOrder] FAILED: No payment_reference provided.`);
+    console.error(`[CreateOrder] ABORTED: No payment_reference provided by frontend.`);
     return res.status(400).json({ error: "Missing payment reference." });
   }
 
@@ -419,16 +419,15 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
 
   if (PAYSTACK_SECRET_KEY && !isDemo) {
     try {
-      // Verify that this reference hasn't been used already
+      // 1. Idempotency Check
       const existingOrder = await Order.findOne({ payment_reference });
       if (existingOrder) {
         console.warn(`[CreateOrder] Failed: Duplicate reference ${payment_reference} found for existing order ${existingOrder._id}.`);
         return res.status(400).json({ error: "Duplicate transaction reference. This payment has already been processed." });
       }
 
-      console.log(`[CreateOrder] Sync verifying reference ${payment_reference} (Timeout: 5s)...`);
-      
-      // Add a manual timeout to the fetch call to prevent hanging the request
+      // 2. Paystack Verification with Timeout
+      console.log(`[CreateOrder] Outgoing verification for Ref: ${payment_reference}...`);
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
 
@@ -438,7 +437,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       });
       
       clearTimeout(timeout);
-      const verifyData = (await verifyRes.json()) as any;
+      const verifyData = await verifyRes.json() as any;
 
       if (!verifyData.status || verifyData.data.status !== 'success' || verifyData.data.amount < 1) { // amount < 1 check is important
         console.error(`[CreateOrder] Paystack synchronous verification failed for reference ${payment_reference}:`, verifyData);
@@ -447,7 +446,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       isVerified = true;
       console.log(`[CreateOrder] Paystack synchronous verification successful for reference ${payment_reference}.`);
     } catch (err: any) {
-      console.warn(`[CreateOrder] VERIFICATION HANG/FAIL: Connection to Paystack timed out or was blocked. Falling back to ASYNC mode.`);
+      console.warn(`[CreateOrder] VERIFICATION BLOCKED/TIMED-OUT: Falling back to ASYNC mode for reference ${payment_reference}.`);
       // Overcoming the block: We don't fail the request.
       // We save the order as PENDING_VERIFICATION and wait for the inbound webhook.
       orderStatus = 'PENDING_VERIFICATION';
@@ -459,7 +458,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
   }
 
   try {
-    // Explicitly cast user ID for safety
+    // 3. User & Cart Retrieval
     const userId = new mongoose.Types.ObjectId(req.user.id);
     const shopper = await User.findById(req.user.id);
     if (!shopper) {
@@ -477,13 +476,13 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     let total_amount = 0;
     const orderItems = [];
 
-    console.log(`[CreateOrder] Processing ${cart.items.length} items from cart for user ${req.user.id}...`);
+    // 4. Item Processing Loop
+    console.log(`[CreateOrder] Building order items from cart (${cart.items.length} items)...`);
 
     for (const item of cart.items) {
-      // Ensure we populate the vendor_id properly to get the vendor's name
       const product = await Product.findById(item.product).populate('vendor_id');
       if (!product || !product.vendor_id) {
-        console.error(`[CreateOrder] Product not found or vendor_id missing for cart item: ${item.product}.`);
+        console.error(`[CreateOrder] Item Failure: Product ${item.product} not found or vendor missing.`);
         // Decide how to handle this: skip item, or fail whole order. Failing whole order is safer.
         return res.status(400).json({ error: `Product not found or invalid for item ID: ${item.product}` });
       }
@@ -491,7 +490,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       const vendor = product.vendor_id as unknown as IUser;
 
       if (product.stock < item.quantity) {
-        console.error(`[CreateOrder] Insufficient stock for product ${product.name} (ID: ${product._id}).`);
+        console.error(`[CreateOrder] Stock Failure: ${product.name} has only ${product.stock} units.`);
         return res.status(400).json({ error: `Insufficient stock for ${product.name}. Only ${product.stock} available.` });
       }
 
@@ -505,19 +504,19 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
         vendor_name: vendor.name || 'Vendor',
       });
 
-      total_amount += Number(product.price) * Number(item.quantity);
+      total_amount += (Number(product.price) * Number(item.quantity));
     }
 
-    if (orderItems.length === 0) {
+    if (orderItems.length === 0 || isNaN(total_amount)) {
+      console.error(`[CreateOrder] Calculation Failure: total_amount is ${total_amount}`);
       return res.status(400).json({ error: "All items in your cart are no longer available." });
     }
 
-    // If payloadAmount is provided, use it to verify against our calculated total
     const finalAmount = payloadAmount ? Number(payloadAmount) : total_amount;
 
-    console.log(`[CreateOrder] PRE-WRITE: Building Order Object. Shopper: ${shopper.email}, Total: ${finalAmount}, Ref: ${payment_reference}`);
+    // 5. Order Instantiation & Validation
+    console.log(`[CreateOrder] Constructing Order Object. Total: ${finalAmount}, Status: ${orderStatus}`);
 
-    // 1. Create the Order instance
     const order = new Order({
       shopper_id: userId,
       shopper_name: shopper.name,
@@ -529,17 +528,16 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       items: orderItems
     });
 
-    // 2. Validate synchronously before attempting to save
     const validationError = order.validateSync();
     if (validationError) {
-      console.error(`[CreateOrder] FAILED: SCHEMA VALIDATION:`, JSON.stringify(validationError.errors, null, 2));
-      return res.status(400).json({ error: "Order data validation failed", details: validationError.message });
+      console.error(`[CreateOrder] Mongoose Validation Error:`, JSON.stringify(validationError.errors, null, 2));
+      return res.status(400).json({ error: "Order validation failed", details: validationError.message });
     }
 
-    // 3. Attempt DB write
-    console.log(`[CreateOrder] DB PERSISTENCE: Attempting save to collection '${Order.collection.name}'...`);
+    // 6. Persistence
+    console.log(`[CreateOrder] DB WRITE: Saving to collection '${Order.collection.name}'...`);
     const savedOrder = await order.save();
-    console.log(`[CreateOrder] DB SUCCESS: Order ID ${savedOrder._id} created with reference ${payment_reference}`);
+    console.log(`[CreateOrder] SUCCESS: Order ${savedOrder._id} created for Ref: ${payment_reference}`);
     
     // Only perform activities if we successfully verified via outgoing call
     if (isVerified || isDemo) {
