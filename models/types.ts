@@ -24,6 +24,13 @@ export interface Order {
   total_amount: number;
   status: 'PENDING' | 'PAID' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED' | 'PENDING_VERIFICATION';
   payment_reference: string;
+  shippingDetails: {
+    state: string;
+    lga: string;
+    streetAddress: string;
+    phoneNumber?: string;
+    city?: string;
+  };
   created_at: string;
 }
 

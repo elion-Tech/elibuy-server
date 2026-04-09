@@ -401,7 +401,9 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const { payment_reference, shippingDetails, total_amount: payloadAmount } = req.body;
+  // Extracting with fallbacks for common naming variations
+  const { payment_reference, shippingDetails, shipping_details, total_amount: payloadAmount } = req.body;
+  const finalShippingDetails = shippingDetails || shipping_details;
 
   console.log(`[CreateOrder] >>> START: User ${req.user.id}, Reference: ${payment_reference || 'MISSING'}`);
   
@@ -472,6 +474,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       console.error(`[CreateOrder] Failed: Cart is empty for user ${req.user.id}.`);
       return res.status(400).json({ error: "Cart is empty" });
     }
+    console.log(`[CreateOrder] Cart retrieved. Items to process: ${cart.items.length}`);
 
     let total_amount = 0;
     const orderItems = [];
@@ -524,20 +527,20 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       total_amount: Number(finalAmount.toFixed(2)), // Force 2 decimal places for currency safety
       payment_reference,
       status: orderStatus,
-      shippingDetails: shippingDetails || {}, // Use the destructured variable
+      shippingDetails: finalShippingDetails || {}, 
       items: orderItems
     });
 
     const validationError = order.validateSync();
     if (validationError) {
-      console.error(`[CreateOrder] Mongoose Validation Error:`, JSON.stringify(validationError.errors, null, 2));
+      console.error(`[CreateOrder] SCHEMA VALIDATION FAILED:`, JSON.stringify(validationError.errors, null, 2));
       return res.status(400).json({ error: "Order validation failed", details: validationError.message });
     }
 
-    // 6. Persistence
-    console.log(`[CreateOrder] DB WRITE: Saving to collection '${Order.collection.name}'...`);
+    // 6. Persistence Heartbeat
+    console.log(`[CreateOrder] PERSISTENCE: Attempting write to DB. Ref: ${payment_reference}, Items: ${orderItems.length}`);
     const savedOrder = await order.save();
-    console.log(`[CreateOrder] SUCCESS: Order ${savedOrder._id} created for Ref: ${payment_reference}`);
+    console.log(`[CreateOrder] SUCCESS: Order ${savedOrder._id} verified in DB. Count: ${await Order.countDocuments()}`);
     
     // Only perform activities if we successfully verified via outgoing call
     if (isVerified || isDemo) {

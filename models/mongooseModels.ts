@@ -96,7 +96,9 @@ const orderSchema = new Schema<IOrder>({
   shippingDetails: {
     state: { type: String },
     lga: { type: String },
-    streetAddress: { type: String }
+    streetAddress: { type: String },
+    phoneNumber: { type: String },
+    city: { type: String }
   },
   items: [{
     product_id: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
