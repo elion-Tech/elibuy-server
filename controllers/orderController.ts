@@ -127,7 +127,9 @@ export const handlePaystackWebhook = async (req: Request, res: Response) => {
         console.log(`[Webhook] Stock decremented for Product: ${item.name}`);
       }
 
-      sendOrderConfirmationEmail(order.shopper_email, order).catch(console.error);
+      if (order.shopper_email) {
+        sendOrderConfirmationEmail(order.shopper_email, order).catch(console.error);
+      }
     }
   }
   res.sendStatus(200);
@@ -459,11 +461,6 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     }
 
     await Cart.findOneAndDelete({ user: userId }).then(() => console.log(`[CreateOrder] Activity: Cart cleared for user ${userId}`)).catch(err => console.error("Failed to clear cart:", err));
-
-    if (shopper.email) {
-      console.log(`[CreateOrder] Activity: Triggering confirmation email to ${shopper.email}`);
-      sendOrderConfirmationEmail(shopper.email, savedOrder).then(() => console.log(`[CreateOrder] Email activity logged for Order ${savedOrder._id}`)).catch(console.error);
-    }
 
     res.status(201).json({ success: true, orderId: savedOrder._id });
   } catch (error: any) {
