@@ -39,20 +39,20 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       const vendor = product.vendor_id as unknown as IUser;
 
       orderItems.push({
-        product_id: product._id,
-        vendor_id: vendor._id,
+        product_id: new mongoose.Types.ObjectId(product._id as string),
+        vendor_id: new mongoose.Types.ObjectId(vendor._id as string),
         quantity: Number(item.quantity),
         price: product.price, // ALWAYS use DB price
         name: product.name,
         image_url: product.image_url,
-        vendor_name: vendor?.name || 'Elibuy Vendor',
+        vendor_name: vendor?.name || 'Admin Vendor',
         size: item.size || ''
       });
     }
 
     // 2. Create the Order
     const order = new Order({
-      shopper_id: req.user.id,
+      shopper_id: new mongoose.Types.ObjectId(req.user.id),
       shopper_name: shopper.name,
       shopper_email: shopper.email,
       total_amount: Number(total_amount) || 0,
@@ -405,11 +405,11 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
 
   console.log(`[CreateOrder] >>> PURCHASE LOG START: User ${req.user.id}, Ref: ${payment_reference || 'MISSING'}`);
 
-  // Senior Dev: Explicit validation of the full shipping contract
-  const { streetAddress, state, lga, phoneNumber } = shippingDetails || {};
+  // Reconcile with Schema: phoneNumber is required in Mongoose but might be missing in some flows
+  const { streetAddress, state, lga, phoneNumber, city } = shippingDetails || {};
   if (!streetAddress || !state || !lga || !phoneNumber) {
     console.error(`[CreateOrder] ABORTED: Incomplete shipping details for user ${req.user.id}`);
-    return res.status(400).json({ error: "Full shipping info (Address, State, LGA, and Phone) is required." });
+    return res.status(400).json({ error: "Shipping details (Address, State, LGA, and Phone Number) are required." });
   }
   
   if (!payment_reference) {
@@ -466,7 +466,6 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
   }
 
   try {
-    // Explicitly cast user ID for safety
     const userId = new mongoose.Types.ObjectId(req.user.id);
     const shopper = await User.findById(req.user.id);
     if (!shopper) {
@@ -498,13 +497,13 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       const vendor = product.vendor_id as unknown as IUser;
 
       if (product.stock < item.quantity) {
-        console.error(`[CreateOrder] Insufficient stock for product ${product.name} (ID: ${product._id}).`);
+        console.error(`[CreateOrder] Stock Error: ${product.name} (ID: ${product._id}). Requested: ${item.quantity}, Stock: ${product.stock}`);
         return res.status(400).json({ error: `Insufficient stock for ${product.name}. Only ${product.stock} available.` });
       }
 
       orderItems.push({
-        product_id: product._id,
-        vendor_id: vendor._id,
+        product_id: new mongoose.Types.ObjectId(product._id as string),
+        vendor_id: new mongoose.Types.ObjectId(vendor._id as string),
         quantity: Number(item.quantity),
         price: Number(product.price),
         name: product.name,
@@ -526,13 +525,19 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
 
     // 1. Create the Order instance
     const order = new Order({
-      shopper_id: userId,
+      shopper_id: new mongoose.Types.ObjectId(req.user.id),
       shopper_name: shopper.name,
       shopper_email: shopper.email,
       total_amount: Number(finalAmount.toFixed(2)), // Force 2 decimal places for currency safety
       payment_reference,
       status: orderStatus,
-      shippingDetails: shippingDetails || {}, // Use the destructured variable
+      shippingDetails: {
+        state: String(state),
+        lga: String(lga),
+        streetAddress: String(streetAddress),
+        phoneNumber: String(phoneNumber),
+        city: city ? String(city) : undefined
+      },
       items: orderItems
     });
 
