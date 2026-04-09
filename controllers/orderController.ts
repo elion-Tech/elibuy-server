@@ -97,6 +97,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
 
 export const handlePaystackWebhook = async (req: Request, res: Response) => {
   console.log("[Webhook] Paystack webhook activated. Processing incoming event...");
+  try {
   const secret = process.env.PAYSTACK_SECRET_KEY;
   if (!secret) {
     console.error("[Webhook] CRITICAL: PAYSTACK_SECRET_KEY is not set. Cannot verify webhook signature.");
@@ -128,17 +129,17 @@ export const handlePaystackWebhook = async (req: Request, res: Response) => {
       return res.sendStatus(400);
     }
 
-    // RACE CONDITION FIX: Improved polling logic. Check 5 times every 2 seconds.
+    // RACE CONDITION FIX: Aggressive polling. Check 10 times every 1.5 seconds (15s total).
     let order = null;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 10; i++) {
       order = await Order.findOne({ payment_reference: reference });
       if (order) break;
-      console.log(`[Webhook] Order ${reference} not found in DB yet (Attempt ${i + 1}/5). Retrying in 2s...`);
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      console.log(`[Webhook] Order ${reference} not found in DB yet (Attempt ${i + 1}/10). Retrying in 1.5s...`);
+      await new Promise(resolve => setTimeout(resolve, 1500));
     }
 
     if (!order) {
-      console.error(`[Webhook] CRITICAL FAILURE: Order ${reference} not found after 10s of retries. Either the frontend request failed to reach the server, or the database write errored out.`);
+      console.error(`[Webhook] CRITICAL FAILURE: Order ${reference} not found after 15s. The /from-cart request either failed or is still hanging.`);
       return res.sendStatus(200); // Acknowledge, but no action needed
     }
 
@@ -192,6 +193,10 @@ export const handlePaystackWebhook = async (req: Request, res: Response) => {
       console.warn(`[Webhook] Order ${order._id} has status ${order.status}. Not processing webhook for reference ${reference}.`);
     }
   }
+  } catch (err: any) {
+    console.error(`[Webhook] Unhandled error in webhook:`, err.message);
+  }
+
   res.sendStatus(200); // Always respond 200 to Paystack to avoid retries, even if we don't process
 };
 
@@ -396,10 +401,11 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
 
   const { payment_reference, shippingDetails, total_amount: payloadAmount } = req.body;
 
-  console.log(`[CreateOrder] REQUEST RECEIVED: User ${req.user.id}, Ref ${payment_reference}`);
+  console.log(`[CreateOrder] REQUEST RECEIVED: User ${req.user.id}, Ref ${payment_reference || 'MISSING'}`);
   
   if (!payment_reference) {
-    console.warn(`[CreateOrder] Warning: No payment_reference provided by frontend.`);
+    console.error(`[CreateOrder] Aborting: No payment_reference provided.`);
+    return res.status(400).json({ error: "Missing payment reference." });
   }
 
   let orderStatus: 'PAID' | 'PENDING_VERIFICATION' = 'PAID';
@@ -418,11 +424,18 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
         return res.status(400).json({ error: "Duplicate transaction reference. This payment has already been processed." });
       }
 
-      console.log(`[CreateOrder] Attempting synchronous verification with Paystack for reference ${payment_reference}...`);
-      // Calls Paystack API
+      console.log(`[CreateOrder] Sync verifying reference ${payment_reference} (Timeout: 5s)...`);
+      
+      // Add a manual timeout to the fetch call to prevent hanging the request
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+
       const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${payment_reference}`, {
-        headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` }
+        headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` },
+        signal: controller.signal
       });
+      
+      clearTimeout(timeout);
       const verifyData = (await verifyRes.json()) as any;
 
       if (!verifyData.status || verifyData.data.status !== 'success' || verifyData.data.amount < 1) { // amount < 1 check is important
@@ -432,7 +445,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       isVerified = true;
       console.log(`[CreateOrder] Paystack synchronous verification successful for reference ${payment_reference}.`);
     } catch (err: any) {
-      console.warn(`[CreateOrder] Outgoing connection to Paystack failed/blocked for reference ${payment_reference}. Saving order as PENDING_VERIFICATION. Error: ${err.message}`);
+      console.warn(`[CreateOrder] VERIFICATION HANG/FAIL: Connection to Paystack timed out or was blocked. Falling back to ASYNC mode.`);
       // Overcoming the block: We don't fail the request.
       // We save the order as PENDING_VERIFICATION and wait for the inbound webhook.
       orderStatus = 'PENDING_VERIFICATION';
@@ -517,14 +530,14 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     // 2. Validate synchronously before attempting to save
     const validationError = order.validateSync();
     if (validationError) {
-      console.error(`[CreateOrder] VALIDATION FAILED:`, JSON.stringify(validationError.errors, null, 2));
+      console.error(`[CreateOrder] SCHEMA VALIDATION FAILED:`, JSON.stringify(validationError.errors, null, 2));
       return res.status(400).json({ error: "Order data validation failed", details: validationError.message });
     }
 
     // 3. Attempt DB write
-    console.log(`[CreateOrder] DB WRITE START: Saving order ${payment_reference}...`);
+    console.log(`[CreateOrder] PERSISTENCE: Saving order ${payment_reference} to database...`);
     const savedOrder = await order.save();
-    console.log(`[CreateOrder] DB WRITE SUCCESS: Order ${savedOrder._id} saved. Status: ${orderStatus}`);
+    console.log(`[CreateOrder] SUCCESS: Order ${savedOrder._id} saved with status: ${orderStatus}`);
     
     // Only perform activities if we successfully verified via outgoing call
     if (isVerified || isDemo) {
