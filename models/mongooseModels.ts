@@ -25,10 +25,12 @@ export interface IOrder extends Document, Omit<OrderType, 'id' | 'shopper_id'> {
   shopper_id: mongoose.Types.ObjectId;
   shopper_name?: string;
   shopper_email?: string;
-  shippingDetails?: {
-    state?: string;
-    lga?: string;
-    streetAddress?: string;
+  shippingDetails: {
+    state: string;
+    lga: string;
+    streetAddress: string;
+    phoneNumber?: string;
+    city?: string;
   };
   items: {
     product_id: mongoose.Types.ObjectId;
@@ -94,11 +96,11 @@ const orderSchema = new Schema<IOrder>({
   },
   payment_reference: { type: String },
   shippingDetails: {
-    state: { type: String },
-    lga: { type: String },
-    streetAddress: { type: String },
-    phoneNumber: { type: String },
-    city: { type: String }
+    state: { type: String, default: 'N/A' },
+    lga: { type: String, default: 'N/A' },
+    streetAddress: { type: String, default: 'N/A' },
+    phoneNumber: { type: String, default: 'N/A' },
+    city: { type: String, default: 'N/A' }
   },
   items: [{
     product_id: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
