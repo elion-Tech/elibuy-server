@@ -97,9 +97,18 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
 
 export const handlePaystackWebhook = async (req: Request, res: Response) => {
   const secret = process.env.PAYSTACK_SECRET_KEY;
-  if (!secret) return res.sendStatus(200);
+  if (!secret) {
+    console.error("[Webhook] CRITICAL: PAYSTACK_SECRET_KEY is not set. Cannot verify webhook signature.");
+    // Respond with 200 to prevent Paystack from retrying indefinitely,
+    // but log the critical error.
+    return res.sendStatus(200);
+  }
 
   const signature = req.headers['x-paystack-signature'];
+  if (!signature) {
+    console.warn("[Webhook] Received webhook without signature. Ignoring.");
+    return res.sendStatus(400); // Bad request, missing security header
+  }
   // Paystack signature verification ensures the request is authentic
   const hash = crypto.createHmac('sha512', secret).update(JSON.stringify(req.body)).digest('hex');
 
@@ -109,30 +118,73 @@ export const handlePaystackWebhook = async (req: Request, res: Response) => {
   }
 
   const event = req.body;
-  console.log(`[Webhook] Received Paystack event: ${event.event}`);
+  console.log(`[Webhook] Received Paystack event: ${event.event} for reference: ${event.data?.reference}`);
 
   if (event.event === 'charge.success') {
-    const { reference } = event.data;
+    const { reference, amount } = event.data; // Also get amount for verification
+    if (!reference) {
+      console.error("[Webhook] charge.success event missing reference. Ignoring.");
+      return res.sendStatus(400);
+    }
+
     const order = await Order.findOne({ payment_reference: reference });
 
+    if (!order) {
+      console.warn(`[Webhook] Order not found for reference ${reference}. It might have failed initial creation or is a duplicate webhook.`);
+      return res.sendStatus(200); // Acknowledge, but no action needed
+    }
+
+    // Additional check: Ensure the amount matches (optional but good practice)
+    // Paystack amount is in kobo/cents, so compare with order total_amount * 100
+    // Assuming order.total_amount is in Naira/Dollars
+    if (order.total_amount * 100 !== amount) {
+      console.error(`[Webhook] Amount mismatch for order ${order._id}. Expected ${order.total_amount * 100}, got ${amount}.`);
+      // You might want to flag this order for manual review
+      return res.sendStatus(200);
+    }
+
     // Only process if the order was waiting for verification
-    if (order && order.status === 'PENDING_VERIFICATION') {
-      console.log(`[Webhook] Confirming payment for order: ${order._id}`);
+    if (order.status === 'PENDING_VERIFICATION') {
+      console.log(`[Webhook] Confirming payment for order: ${order._id} (Reference: ${reference})`);
       order.status = 'PAID';
       await order.save();
+      console.log(`[Webhook] Order ${order._id} status updated to PAID.`);
 
       // Post-payment activities (Now handled since we couldn't do it in the controller)
+      console.log(`[Webhook] Activity: Updating product stocks for order ${order._id}...`);
       for (const item of order.items) {
-        await Product.findByIdAndUpdate(item.product_id, { $inc: { stock: -item.quantity } });
-        console.log(`[Webhook] Stock decremented for Product: ${item.name}`);
+        try {
+          await Product.findByIdAndUpdate(item.product_id, { $inc: { stock: -item.quantity } });
+          console.log(`[Webhook] Stock decremented for Product: ${item.name} (${item.product_id}) by ${item.quantity}`);
+        } catch (stockErr) {
+          console.error(`[Webhook] Failed to update stock for product ${item.product_id} in order ${order._id}:`, stockErr);
+          // Consider logging this to a separate error tracking system or flagging the order
+        }
+      }
+
+      // Clear the cart for the shopper
+      try {
+        await Cart.findOneAndDelete({ user: order.shopper_id });
+        console.log(`[Webhook] Cart cleared for user ${order.shopper_id} after order ${order._id} confirmation.`);
+      } catch (cartErr) {
+        console.error(`[Webhook] Failed to clear cart for user ${order.shopper_id} after order ${order._id}:`, cartErr);
       }
 
       if (order.shopper_email) {
-        sendOrderConfirmationEmail(order.shopper_email, order).catch(console.error);
+        console.log(`[Webhook] Activity: Triggering confirmation email to ${order.shopper_email} for order ${order._id}`);
+        sendOrderConfirmationEmail(order.shopper_email, order).then(() => {
+          console.log(`[Webhook] Email activity logged for Order ${order._id}`);
+        }).catch((emailErr: any) => {
+          console.error(`[Webhook] Failed to send email for order ${order._id}:`, emailErr);
+        });
       }
+    } else if (order.status === 'PAID') {
+      console.log(`[Webhook] Order ${order._id} already PAID. Ignoring duplicate webhook for reference ${reference}.`);
+    } else {
+      console.warn(`[Webhook] Order ${order._id} has status ${order.status}. Not processing webhook for reference ${reference}.`);
     }
   }
-  res.sendStatus(200);
+  res.sendStatus(200); // Always respond 200 to Paystack to avoid retries, even if we don't process
 };
 
 export const verifyPayment = async (req: AuthRequest, res: Response) => {
@@ -334,7 +386,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
-  const { payment_reference, shippingDetails } = req.body; // Destructure shippingDetails for clarity
+  const { payment_reference, shippingDetails } = req.body;
 
   console.log(`[CreateOrder] Processing for user: ${req.user.id}, Ref: ${payment_reference}`);
   
@@ -350,65 +402,70 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       // Verify that this reference hasn't been used already
       const existingOrder = await Order.findOne({ payment_reference });
       if (existingOrder) {
-        console.warn(`[CreateOrder] Failed: Duplicate reference ${payment_reference}`);
-        return res.status(400).json({ error: "Duplicate transaction reference." });
+        console.warn(`[CreateOrder] Failed: Duplicate reference ${payment_reference} found for existing order ${existingOrder._id}.`);
+        return res.status(400).json({ error: "Duplicate transaction reference. This payment has already been processed." });
       }
 
-      console.log(`[CreateOrder] Verifying with Paystack...`);
+      console.log(`[CreateOrder] Attempting synchronous verification with Paystack for reference ${payment_reference}...`);
       // Calls Paystack API
       const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${payment_reference}`, {
         headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` }
       });
       const verifyData = await verifyRes.json() as any;
 
-      if (!verifyData.status || verifyData.data.status !== 'success' || verifyData.data.amount < 1) {
-        console.error(`[CreateOrder] Paystack verification failed:`, verifyData);
+      if (!verifyData.status || verifyData.data.status !== 'success' || verifyData.data.amount < 1) { // amount < 1 check is important
+        console.error(`[CreateOrder] Paystack synchronous verification failed for reference ${payment_reference}:`, verifyData);
         return res.status(400).json({ error: "Payment verification failed. Unable to create order." });
       }
       isVerified = true;
-      console.log(`[CreateOrder] Paystack verification successful.`);
+      console.log(`[CreateOrder] Paystack synchronous verification successful for reference ${payment_reference}.`);
     } catch (err: any) {
-      console.warn("[CreateOrder] Outgoing connection to Paystack failed/blocked. Falling back to Async Webhook.");
+      console.warn(`[CreateOrder] Outgoing connection to Paystack failed/blocked for reference ${payment_reference}. Saving order as PENDING_VERIFICATION. Error: ${err.message}`);
       // Overcoming the block: We don't fail the request.
       // We save the order as PENDING_VERIFICATION and wait for the inbound webhook.
       orderStatus = 'PENDING_VERIFICATION';
       isVerified = false;
     }
   } else {
-    console.log(`[CreateOrder] Skipping Paystack verification (Demo mode or No Key).`);
+    console.log(`[CreateOrder] Skipping Paystack verification (Demo mode: ${isDemo} or No PAYSTACK_SECRET_KEY). Order status will be PAID.`);
+    isVerified = true; // Treat as verified for demo/no-key scenarios
   }
 
   try {
     // Explicitly cast user ID for safety
     const userId = new mongoose.Types.ObjectId(req.user.id);
     const shopper = await User.findById(req.user.id);
-    if (!shopper) return res.status(404).json({ error: "Shopper not found" });
+    if (!shopper) {
+      console.error(`[CreateOrder] Shopper not found for ID: ${req.user.id}`);
+      return res.status(404).json({ error: "Shopper not found" });
+    }
 
     const cart = await Cart.findOne({ user: userId });
 
     if (!cart || !cart.items || cart.items.length === 0) {
-      console.log(`[CreateOrder] Failed: Cart is empty for user ${req.user.id}`);
+      console.error(`[CreateOrder] Failed: Cart is empty for user ${req.user.id}.`);
       return res.status(400).json({ error: "Cart is empty" });
     }
 
     let total_amount = 0;
     const orderItems = [];
 
-    console.log(`[CreateOrder] Processing ${cart.items.length} items...`);
+    console.log(`[CreateOrder] Processing ${cart.items.length} items from cart for user ${req.user.id}...`);
 
     for (const item of cart.items) {
       // Ensure we populate the vendor_id properly to get the vendor's name
       const product = await Product.findById(item.product).populate('vendor_id');
       if (!product || !product.vendor_id) {
-        console.warn(`[CreateOrder] Product not found for item:`, item);
-        continue;
+        console.error(`[CreateOrder] Product not found or vendor_id missing for cart item: ${item.product}.`);
+        // Decide how to handle this: skip item, or fail whole order. Failing whole order is safer.
+        return res.status(400).json({ error: `Product not found or invalid for item ID: ${item.product}` });
       }
 
       const vendor = product.vendor_id as unknown as IUser;
 
       if (product.stock < item.quantity) {
-        console.warn(`[CreateOrder] Stock error for ${product.name}`);
-        return res.status(400).json({ error: `Insufficient stock for ${product.name}` });
+        console.error(`[CreateOrder] Insufficient stock for product ${product.name} (ID: ${product._id}). Requested: ${item.quantity}, Available: ${product.stock}.`);
+        return res.status(400).json({ error: `Insufficient stock for ${product.name}. Only ${product.stock} available.` });
       }
 
       orderItems.push({
