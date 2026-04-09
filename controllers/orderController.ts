@@ -95,6 +95,44 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
   }
 };
 
+export const handlePaystackWebhook = async (req: Request, res: Response) => {
+  const secret = process.env.PAYSTACK_SECRET_KEY;
+  if (!secret) return res.sendStatus(200);
+
+  const signature = req.headers['x-paystack-signature'];
+  // Paystack signature verification ensures the request is authentic
+  const hash = crypto.createHmac('sha512', secret).update(JSON.stringify(req.body)).digest('hex');
+
+  if (hash !== signature) {
+    console.error("[Webhook] Security Alert: Signature mismatch");
+    return res.sendStatus(400);
+  }
+
+  const event = req.body;
+  console.log(`[Webhook] Received Paystack event: ${event.event}`);
+
+  if (event.event === 'charge.success') {
+    const { reference } = event.data;
+    const order = await Order.findOne({ payment_reference: reference });
+
+    // Only process if the order was waiting for verification
+    if (order && order.status === 'PENDING_VERIFICATION') {
+      console.log(`[Webhook] Confirming payment for order: ${order._id}`);
+      order.status = 'PAID';
+      await order.save();
+
+      // Post-payment activities (Now handled since we couldn't do it in the controller)
+      for (const item of order.items) {
+        await Product.findByIdAndUpdate(item.product_id, { $inc: { stock: -item.quantity } });
+        console.log(`[Webhook] Stock decremented for Product: ${item.name}`);
+      }
+
+      sendOrderConfirmationEmail(order.shopper_email, order).catch(console.error);
+    }
+  }
+  res.sendStatus(200);
+};
+
 export const verifyPayment = async (req: AuthRequest, res: Response) => {
   const { reference } = req.body;
   const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
@@ -297,10 +335,12 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
   const { payment_reference, shippingDetails } = req.body; // Destructure shippingDetails for clarity
 
   console.log(`[CreateOrder] Processing for user: ${req.user.id}, Ref: ${payment_reference}`);
-
-  // 1. Security Check: Verify Payment with Paystack (Essential without Webhooks)
-  const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
   
+  let orderStatus = 'PAID';
+  let isVerified = false;
+
+  const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
+
   // SKIP verification if this is a demo reference from the frontend simulation
   const isDemo = payment_reference && String(payment_reference).startsWith('DEMO-');
 
@@ -318,16 +358,20 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       const verifyRes = await fetch(`https://api.paystack.co/transaction/verify/${payment_reference}`, {
         headers: { Authorization: `Bearer ${PAYSTACK_SECRET_KEY}` }
       });
-      const verifyData = await verifyRes.json();
+      const verifyData = await verifyRes.json() as any;
 
-      if (!verifyData.status || verifyData.data.status !== 'success') {
+      if (!verifyData.status || verifyData.data.status !== 'success' || verifyData.data.amount < 1) {
         console.error(`[CreateOrder] Paystack verification failed:`, verifyData);
         return res.status(400).json({ error: "Payment verification failed. Unable to create order." });
       }
+      isVerified = true;
       console.log(`[CreateOrder] Paystack verification successful.`);
-    } catch (err) {
-      console.error("Paystack verification error inside createOrder:", err);
-      return res.status(500).json({ error: "Payment verification failed" });
+    } catch (err: any) {
+      console.warn("[CreateOrder] Outgoing connection to Paystack failed/blocked. Falling back to Async Webhook.");
+      // Overcoming the block: We don't fail the request.
+      // We save the order as PENDING_VERIFICATION and wait for the inbound webhook.
+      orderStatus = 'PENDING_VERIFICATION';
+      isVerified = false;
     }
   } else {
     console.log(`[CreateOrder] Skipping Paystack verification (Demo mode or No Key).`);
@@ -391,7 +435,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       shopper_email: shopper.email,
       total_amount, 
       payment_reference,
-      status: 'PAID',
+      status: orderStatus,
       shippingDetails: shippingDetails || {}, // Use the destructured variable
       items: orderItems
     });
@@ -400,18 +444,25 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
     const savedOrder = await order.save();
     console.log(`[CreateOrder] SUCCESS! Order ID: ${savedOrder._id}`);
     
-    // Debug log to verify storage
-    const orderCount = await Order.countDocuments();
-    console.log(`[CreateOrder] VERIFICATION: Total Orders in DB: ${orderCount}`);
+    // Only perform activities if we successfully verified via outgoing call
+    if (isVerified || isDemo) {
+      console.log(`[CreateOrder] Activity: Updating product stocks...`);
+      for (const item of orderItems) {
+        await Product.findByIdAndUpdate(item.product_id, { $inc: { stock: -item.quantity } });
+        console.log(`[CreateOrder] Stock decremented for Product: ${item.name} (${item.product_id}) by ${item.quantity}`);
+      }
 
-    for (const item of orderItems) {
-      await Product.findByIdAndUpdate(item.product_id, { $inc: { stock: -item.quantity } });
+      if (shopper.email) {
+        console.log(`[CreateOrder] Activity: Triggering confirmation email to ${shopper.email}`);
+        sendOrderConfirmationEmail(shopper.email, savedOrder).catch(console.error);
+      }
     }
 
-    await Cart.findOneAndDelete({ user: userId }).catch(err => console.error("Failed to clear cart:", err));
+    await Cart.findOneAndDelete({ user: userId }).then(() => console.log(`[CreateOrder] Activity: Cart cleared for user ${userId}`)).catch(err => console.error("Failed to clear cart:", err));
 
     if (shopper.email) {
-      sendOrderConfirmationEmail(shopper.email, savedOrder).catch(console.error);
+      console.log(`[CreateOrder] Activity: Triggering confirmation email to ${shopper.email}`);
+      sendOrderConfirmationEmail(shopper.email, savedOrder).then(() => console.log(`[CreateOrder] Email activity logged for Order ${savedOrder._id}`)).catch(console.error);
     }
 
     res.status(201).json({ success: true, orderId: savedOrder._id });

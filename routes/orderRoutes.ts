@@ -9,6 +9,7 @@ import {
   debugCheckDb,
   createOrderFromCart,
   verifyPayment,
+  handlePaystackWebhook
 } from '../controllers/orderController.js';
 import { authenticateToken } from '../middleware/auth.js';
 
@@ -18,6 +19,7 @@ const router = express.Router();
 router.post('/', authenticateToken, createOrder); 
 router.post('/from-cart', authenticateToken, createOrderFromCart); // Creates order from cart after payment
 router.post('/verify', authenticateToken, verifyPayment);
+router.post('/webhook', handlePaystackWebhook); // Public endpoint for Paystack notifications
 router.get('/my', authenticateToken, getMyOrders); // Get logged-in user's orders
 router.get('/:id', authenticateToken, getOrderById);
 router.patch('/:id/status', authenticateToken, updateOrderStatus);
