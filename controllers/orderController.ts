@@ -40,7 +40,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
 
       orderItems.push({
         product_id: product._id,
-        vendor_id: product.vendor_id,
+        vendor_id: vendor._id,
         quantity: Number(item.quantity),
         price: product.price, // ALWAYS use DB price
         name: product.name,
@@ -55,7 +55,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       shopper_id: req.user.id,
       shopper_name: shopper.name,
       shopper_email: shopper.email,
-      total_amount: Number(total_amount),
+      total_amount: Number(total_amount) || 0,
       payment_reference,
       status: 'PAID',
       shippingDetails: shippingDetails || {},
@@ -126,18 +126,16 @@ export const verifyPayment = async (req: AuthRequest, res: Response) => {
 export const getMyOrders = async (req: AuthRequest, res: Response) => {
   if (!req.user) return res.status(401).json({ error: "Unauthorized" });
 
-  const dbName = mongoose.connection.db ? mongoose.connection.db.databaseName : 'UNKNOWN';
-  console.log(`[GetMyOrders] Fetching orders for User ID: ${req.user.id} (Role: ${req.user.role}) from DB: ${dbName}`);
+  console.log(`[GetMyOrders] Fetching orders for User ID: ${req.user.id} (Role: ${req.user.role})`);
 
   try {
-    const userId = new mongoose.Types.ObjectId(req.user.id); // Explicit cast to ObjectId
     let orders;
     if (req.user.role === 'SHOPPER') {
-      orders = await Order.find({ shopper_id: userId })
+      orders = await Order.find({ shopper_id: req.user.id })
         .populate({
           path: 'items.product_id',
           model: 'Product',
-          populate: {
+          populate: { 
             path: 'vendor_id',
             model: 'User',
             select: 'name email'
@@ -146,7 +144,7 @@ export const getMyOrders = async (req: AuthRequest, res: Response) => {
         .sort({ createdAt: -1 });
     } else if (req.user.role === 'VENDOR') {
       // Find orders that contain products belonging to this vendor
-      const vendorProducts = await Product.find({ vendor_id: userId }).select('_id');
+      const vendorProducts = await Product.find({ vendor_id: req.user.id }).select('_id');
       const productIds = vendorProducts.map(p => p._id);
       orders = await Order.find({ 'items.product_id': { $in: productIds } })
         .populate('shopper_id', 'name email')
@@ -162,12 +160,12 @@ export const getMyOrders = async (req: AuthRequest, res: Response) => {
         })
         .sort({ createdAt: -1 });
     }
-    console.log(`[GetMyOrders] Found ${orders.length} orders in DB '${dbName}'.`);
+    console.log(`[GetMyOrders] Found ${orders.length} orders.`);
     
     // DEBUG: If 0 found, verify if ANY orders exist in the entire DB
     if (orders.length === 0) {
       const totalOrders = await Order.countDocuments();
-      console.log(`[GetMyOrders] DEBUG: Total orders in collection: ${totalOrders}`);
+      console.log(`[GetMyOrders] DEBUG: Total orders in system: ${totalOrders}`);
     }
 
     res.json(orders.map(o => ({ ...o.toObject(), id: o._id.toString() })));
@@ -256,11 +254,11 @@ export const getOrderById = async (req: AuthRequest, res: Response) => {
     
     let isVendorForOrder = false;
     if (req.user.role === 'VENDOR') {
-      const vendorId = req.user.id; // Capture ID to avoid undefined error in callback
+      const vendorId = req.user.id;
       isVendorForOrder = order.items.some(item => {
-        // Fix TS2352: Double cast to unknown first to handle ObjectId -> IProduct conversion
-        const product = item.product_id as unknown as IProduct;
-        return product.vendor_id.toString() === vendorId;
+        // Check if item.vendor_id matches the logged in vendor
+        const itemVendorId = (item.vendor_id as any)._id || item.vendor_id;
+        return itemVendorId.toString() === vendorId;
       });
     }
 
@@ -287,6 +285,10 @@ export const deleteOrder = async (req: AuthRequest, res: Response) => {
 };
 
 export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(500).json({ error: "Database not connected. Please try again later." });
+  }
+
   if (!req.user) {
     console.log("[CreateOrder] Failed: Unauthorized request");
     return res.status(401).json({ error: "Unauthorized" });
@@ -390,19 +392,17 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       total_amount, 
       payment_reference,
       status: 'PAID',
-      shippingDetails: {},
+      shippingDetails: req.body.shippingDetails || {},
       items: orderItems
     });
 
     console.log(`[CreateOrder] Saving to database...`);
     const savedOrder = await order.save();
-    console.log(`[CreateOrder] SUCCESS!`);
-    console.log(`   - ID: ${savedOrder._id}`);
-    console.log(`   - LOCATION: ${(savedOrder.db as any).name}.${savedOrder.collection.collectionName}`);
+    console.log(`[CreateOrder] SUCCESS! Order ID: ${savedOrder._id}`);
     
-    // VERIFICATION: Count orders immediately to prove persistence
+    // Debug log to verify storage
     const orderCount = await Order.countDocuments();
-    console.log(`[CreateOrder] VERIFICATION: Total Orders in DB '${(savedOrder.db as any).name}': ${orderCount}`);
+    console.log(`[CreateOrder] VERIFICATION: Total Orders in DB: ${orderCount}`);
 
     for (const item of orderItems) {
       await Product.findByIdAndUpdate(item.product_id, { $inc: { stock: -item.quantity } });
