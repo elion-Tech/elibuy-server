@@ -116,8 +116,10 @@ export const handlePaystackWebhook = async (req: Request, res: Response) => {
     const order = await Order.findOne({ payment_reference: reference });
 
     // Only process if the order was waiting for verification
-    if (order && (`[Webhook] Confirming payment for order: ${order._id}`);
-      order.status = 'PAID';a
+    if (order && order.status === 'PENDING_VERIFICATION') {
+      console.log(`[Webhook] Confirming payment for order: ${order._id}`);
+      order.status = 'PAID';
+      await order.save();
 
       // Post-payment activities (Now handled since we couldn't do it in the controller)
       for (const item of order.items) {
@@ -128,6 +130,7 @@ export const handlePaystackWebhook = async (req: Request, res: Response) => {
       if (order.shopper_email) {
         sendOrderConfirmationEmail(order.shopper_email, order).catch(console.error);
       }
+    }
   }
   res.sendStatus(200);
 };
@@ -337,7 +340,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
   
   let orderStatus: 'PAID' | 'PENDING_VERIFICATION' = 'PAID';
   let isVerified = false;
-SC = process.env.PAYSTACK_SECRET_KEY;
+  const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 
   // SKIP verification if this is a demo reference from the frontend simulation
   const isDemo = payment_reference && String(payment_reference).startsWith('DEMO-');
