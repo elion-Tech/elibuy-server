@@ -404,16 +404,17 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
 
   const { payment_reference, shippingDetails, total_amount: payloadAmount } = req.body;
 
-  console.log(`[CreateOrder] >>> REQUEST ARRIVED: User ${req.user.id}, Ref: ${payment_reference || 'MISSING'}`);
+  console.log(`[CreateOrder] >>> PURCHASE ATTEMPT: User ${req.user.id}, Ref: ${payment_reference || 'MISSING'}`);
 
-  console.log(`[CreateOrder] >>> PURCHASE LOG START: User ${req.user.id}, Ref: ${payment_reference || 'MISSING'}`);
-  console.log(`[CreateOrder] Incoming Data: ${JSON.stringify({ payment_reference, shippingDetails, payloadAmount })}`);
+  // Senior Dev: Detailed log to verify data arriving from frontend
+  console.log(`[CreateOrder] Payload Data:`, JSON.stringify({ payment_reference, shippingDetails }, null, 2));
 
-  // Reconcile with Schema: phoneNumber is required in Mongoose but might be missing in some flows
+  // 1. Strict Validation: Ensure data matches Mongoose 'required' fields
   const { streetAddress, state, lga, phoneNumber, city } = shippingDetails || {};
+  
   if (!streetAddress || !state || !lga || !phoneNumber) {
-    console.error(`[CreateOrder] ABORTED: Incomplete shipping details for user ${req.user.id}`);
-    return res.status(400).json({ error: "Shipping details (Address, State, LGA, and Phone Number) are required." });
+    console.error(`[CreateOrder] ABORTED: Missing required fields. Address: ${!!streetAddress}, State: ${!!state}, LGA: ${!!lga}, Phone: ${!!phoneNumber}`);
+    return res.status(400).json({ error: "Full shipping information including phone number is required." });
   }
   
   if (!payment_reference) {
@@ -529,10 +530,10 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
 
     // 1. Create the Order instance
     const order = new Order({
-      shopper_id: new mongoose.Types.ObjectId(req.user.id),
+      shopper_id: new mongoose.Types.ObjectId(req.user.id as any), 
       shopper_name: shopper.name,
       shopper_email: shopper.email,
-      total_amount: Number(finalAmount.toFixed(2)), // Force 2 decimal places for currency safety
+      total_amount: Number(finalAmount.toFixed(2)),
       payment_reference,
       status: orderStatus,
       shippingDetails: {
@@ -540,23 +541,23 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
         lga: String(lga),
         streetAddress: String(streetAddress),
         phoneNumber: String(phoneNumber),
-        city: city ? String(city) : undefined
+        city: city || ''
       },
       items: orderItems
     });
 
-    console.log(`[CreateOrder] FINAL DATA FOR DB:`, JSON.stringify(order.toObject(), null, 2));
+    console.log(`[CreateOrder] PERSISTENCE: Data prepared for DB. Validating...`);
     // 2. Validate synchronously before attempting to save
     const validationError = order.validateSync();
     if (validationError) {
-      console.error(`[CreateOrder] FAILED: SCHEMA VALIDATION:`, JSON.stringify(validationError.errors, null, 2));
-      return res.status(400).json({ error: "Order data validation failed", details: validationError.message });
+      console.error(`[CreateOrder] SCHEMA VALIDATION FAILED:`, JSON.stringify(validationError.errors, null, 2));
+      return res.status(400).json({ error: "Database validation failed. Ensure all fields are correct." });
     }
 
     // 3. Attempt DB write
-    console.log(`[CreateOrder] DB PERSISTENCE: Attempting save to collection '${Order.collection.name}'...`);
+    console.log(`[CreateOrder] DB WRITE START: Saving to collection '${Order.collection.name}'...`);
     const savedOrder = await order.save();
-    console.log(`[CreateOrder] DB SUCCESS: Order ID ${savedOrder._id} created with reference ${payment_reference}`);
+    console.log(`[CreateOrder] DB WRITE SUCCESS: Order ${savedOrder._id} saved. New Count: ${await Order.countDocuments()}`);
     
     // Only perform activities if we successfully verified via outgoing call
     if (isVerified || isDemo) {
