@@ -62,6 +62,7 @@ export const createOrder = async (req: AuthRequest, res: Response) => {
       items: orderItems
     });
     
+    console.log(`[Order] FINAL DATA FOR DB:`, JSON.stringify(order.toObject(), null, 2));
     const savedOrder = await order.save();
     console.log(`[Order] Order saved successfully: ${order._id}`);
 
@@ -544,6 +545,7 @@ export const createOrderFromCart = async (req: AuthRequest, res: Response) => {
       items: orderItems
     });
 
+    console.log(`[CreateOrder] FINAL DATA FOR DB:`, JSON.stringify(order.toObject(), null, 2));
     // 2. Validate synchronously before attempting to save
     const validationError = order.validateSync();
     if (validationError) {
